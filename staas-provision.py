@@ -1,5 +1,6 @@
 import pandas as pd
-from purestorage import Client, PureError
+import pypureclient
+from pypureclient.flasharray import Client, PureError
 
 # Function to check if a realm exists
 def realm_exists(client, realm_name):
@@ -75,6 +76,8 @@ def create_hosts(client, host_name, workload_name):
 if __name__ == "__main__":
     try:
         # Initialize the client
+        API_TOKEN="cc50ecf1-179f-0c1b-28fd-19e4c5db7acaa"
+        FUSION_API_URL="pstg-fa-02.mel.aulab.purestorage.com/"
         client = Client(FUSION_API_URL, api_token=API_TOKEN)
 
         # Read the spreadsheet

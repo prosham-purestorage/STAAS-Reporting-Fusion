@@ -5,50 +5,12 @@ import urllib3
 from pypureclient import flasharray
 from pypureclient.flasharray import Client, PureError
 
-# Function to check if a realm exists
-def realm_exists(client, realm_name):
-    try:
-        realms = client.list_realms()
-        return any(realm['name'] == realm_name for realm in realms)
-    except PureError as e:
-        print(f"Error checking if realm {realm_name} exists: {e}")
-        return False
-
-# Function to create a realm
-def create_realm(client, realm_name):
-    try:
-        response = client.post_realms(name=realm_name)
-        if isinstance(response, PureError):
-            print(f"Error creating realm {realm_name}: {response}")
-        else:
-            print(f"Realm {realm_name} created successfully")
-    except PureError as e:
-        print(f"Error creating realm {realm_name}: {e}")
-
-# Function to check if a workload exists
-def workload_exists(client, workload_name):
-    try:
-        workloads = client.list_workloads()
-        return any(workload['name'] == workload_name for workload in workloads)
-    except PureError as e:
-        print(f"Error checking if workload {workload_name} exists: {e}")
-        return False
-
-# Function to create a workload
-def create_workload(client, workload_name):
-    try:
-        response = client.create_workload(name=workload_name)
-        if isinstance(response, PureError):
-            print(f"Error creating workload {workload_name}: {response}")
-        else:
-            print(f"Workload {workload_name} created successfully")
-    except PureError as e:
-        print(f"Error creating workload {workload_name}: {e}")
-
-# Function to create volumes
-def create_volumes(client, realm_name, workload_name, num_volumes, size_volumes):
+# Function to create and tag volumes
+def create_volumes(client, arrays_name, app_name, num_volumes, size_volumes):
     for i in range(num_volumes):
-        volume_name = f"{realm_name}::{workload_name}::volume{i+1}"
+        volume_name = f"{pod_name}::{workload_name}::volume{i+1}"
+        
+        
         try:
             response = client.create_volume(name=volume_name, size=size_volumes)
             if isinstance(response, PureError):
@@ -57,80 +19,8 @@ def create_volumes(client, realm_name, workload_name, num_volumes, size_volumes)
                 print(f"Volume {volume_name} created successfully")
         except PureError as e:
             print(f"Error creating volume {volume_name}: {e}")
-
-# Function to create hosts
-def create_hosts(client, host_name, workload_name):
-    try:
-        response = client.create_host(name=host_name)
-        if isinstance(response, PureError):
-            print(f"Error creating host {host_name}: {response}")
-        else:
-            print(f"Host {host_name} created successfully")
-            # Connect host to workload
-            response = client.connect_host_to_workload(host_name=host_name, workload_name=workload_name)
-            if isinstance(response, PureError):
-                print(f"Error connecting host {host_name} to workload {workload_name}: {response}")
-            else:
-                print(f"Host {host_name} connected to workload {workload_name} successfully")
-    except PureError as e:
-        print(f"Error creating host {host_name}: {e}")
-
-# Main script
-if __name__ == "__main__":
-    try:
-        # Initialize the client
-        API_TOKEN="5887696c-bceb-1ea1-77df-f316fb18c090"
-        #FUSION_SERVER="pstg-fa-02.mel.aulab.purestorage.com"
-        FUSION_SERVER="10.111.0.5"
-        USER_NAME="prosham"
-        # Disable certificate warnings
-        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-        client = Client(FUSION_SERVER,username=USER_NAME, api_token=API_TOKEN)
-
-#        # Read the spreadsheet
-#       spreadsheet = pd.ExcelFile('Realms_Config.xlsx')
-#
-        # Process realms and workloads
-#        realms_workloads_df = spreadsheet.parse('Realms_Workloads')
-#        for index, row in realms_workloads_df.iterrows():
-#            realm_name = row['realm']
-#            workload_name = row['workload']
-#            num_volumes = row['number_of_volumes']
-#            size_volumes = row['size_of_volumes']
-
-            # Check if the realm exists
-#            if not realm_exists(client, realm_name):
-#                # Create the realm if it does not exist
-#                create_realm(client, realm_name)
-#            else:
-#                print(f"Realm {realm_name} already exists.")
-
-            # Check if the workload exists
-#            if not workload_exists(client, workload_name):
-#                # Create the workload if it does not exist
-#                create_workload(client, workload_name)
-#            else:
-#                print(f"Workload {workload_name} already exists.")
-
-            # Create volumes
-#            create_volumes(client, realm_name, workload_name, num_volumes, size_volumes)
-
-        # Process hosts and workloads
- #       hosts_workloads_df = spreadsheet.parse('Hosts_Workloads')
- #       for index, row in hosts_workloads_df.iterrows():
- #           host_name = row['host']
- #           workload_name = row['workload']
-
-            # Create hosts and connect to workloads
-  #          create_hosts(client, host_name, workload_name)
-
-        # Get all volumes on the array
-        volumes = list(client.get_volumes().items)
-        tags = [
-            {"key": "chargeback", "value": "App1", "namespace": "Telstra-STAAS"},
-        ]
-        # Add the tag to the volumes using the correct method
+                # Add the tag to the volumes using the correct method
+        
         for volume in volumes:
             response = client.put_volumes_tags_batch(resources={volume.name}, tag=tags)
             # Check the response
@@ -139,5 +29,46 @@ if __name__ == "__main__":
             else:
                 print(f"Failed to add tags to {volume.name}. Status code: {response.status_code}, Error: {response.errors}")
         
+
+
+API_TOKEN="5887696c-bceb-1ea1-77df-f316fb18c090"
+FUSION_SERVER="pstg-fa-02.mel.aulab.purestorage.com"
+#FUSION_SERVER="10.111.0.5"
+USER_NAME="prosham"
+# Disable certificate warnings
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+# Main script
+if __name__ == "__main__":
+    try:
+        # Initialize the client
+        client = Client(FUSION_SERVER,username=USER_NAME, api_token=API_TOKEN)
+
+        # Get all volumes on the array
+        volumes = list(client.get_volumes().items)
+        tags = [
+            {"key": "chargeback", "value": "App1", "namespace": "Telstra-STAAS"},
+        ]
+        # Read the spreadsheet
+        spreadsheet = pd.ExcelFile('STAAS_Provisioning.xlsx')
+        # Process each app
+        pods_apps_df = spreadsheet.parse('Pods_Apps')
+        for index, row in pods_apps_df.iterrows():
+            array_name=row['arrays']
+            pod_name = row['pod']
+            app_name = row['app']
+            num_volumes = row['number_of_volumes']
+            size_volumes = row['size_of_volumes']
+
+            # Check if the pod exists
+            response = client.get_pods(names=[pod_name], context=array_name)
+            if not response.items:
+                pod_data = flasharray.PodPost(name=pod_name)
+                client.post_pods(pod_data, context=array_name)
+            else:
+                print(f"Pod {pod_name} already exists on array {array_name}.")
+
+            # Create volumes
+            #create_volumes(client, array_name, app_name, num_volumes, size_volumes)
+
     except PureError as e:
         print(f"Error initializing client: {e}")

@@ -5,6 +5,8 @@ import urllib3
 from pypureclient import flasharray
 from pypureclient.flasharray import Client, PureError
 
+debug=1
+
 # Function to create and tag volumes
 def create_volumes(client, arrays_name, app_name, num_volumes, size_volumes):
     for i in range(num_volumes):
@@ -28,13 +30,32 @@ def create_volumes(client, arrays_name, app_name, num_volumes, size_volumes):
                 print(f"Tags added successfully to volume {volume.name}.")
             else:
                 print(f"Failed to add tags to {volume.name}. Status code: {response.status_code}, Error: {response.errors}")
-        
 
+#def tag_volumes(volumes,tags):
+
+
+
+def list_arrays(client):
+    # Retrieve the list of FlashArrays in the fleet
+    response = client.get_fleets()
+    # Check the response
+    if response.status_code == 200:
+        fleets = response.items
+        for fleet in fleets:
+            if debug>0:
+                print(f"Fleet Name: {fleet.name}")
+
+            for member in fleet.members:
+                print(f"  Array Name: {member.name}, Array ID: {member.id}")
+            else:
+        print(f"Failed to retrieve fleets. Status code: {response.status_code}, Error: {response.errors}")
+    return fleets
 
 API_TOKEN="5887696c-bceb-1ea1-77df-f316fb18c090"
 FUSION_SERVER="pstg-fa-02.mel.aulab.purestorage.com"
 #FUSION_SERVER="10.111.0.5"
 USER_NAME="prosham"
+
 # Disable certificate warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # Main script
@@ -42,35 +63,16 @@ if __name__ == "__main__":
     try:
         # Initialize the client
         client = Client(FUSION_SERVER,username=USER_NAME, api_token=API_TOKEN)
-
-        # list of arrays in fleet
-        
+        # Get the arrays for reporting contexts
+        arrays=list_arrays(client)
         # Get all volumes on the array
-        volumes = list(client.get_volumes().items)
+        volumes = list(client.get_volumes(context=arrays).items)
+        if debug>0 print(f{Found volumes {volumes}})
         tags = [
             {"key": "chargeback", "value": "App1", "namespace": "Telstra-STAAS"},
         ]
-        # Read the spreadsheet
-        #spreadsheet = pd.ExcelFile('STAAS_Provisioning.xlsx')
-        # Process each app
-        #pods_apps_df = spreadsheet.parse('Pods_Apps')
-        #for index, row in pods_apps_df.iterrows():
-        #    array_name=row['arrays']
-        #    pod_name = row['pod']
-        #    app_name = row['app']
-        #    num_volumes = row['number_of_volumes']
-        #    size_volumes = row['size_of_volumes']
-
-            # Check if the pod exists
-        #    response = client.get_pods(names=[pod_name], context=array_name)
-        #    if not response.items:
-        #        pod_data = flasharray.PodPost(name=pod_name)
-        #        client.post_pods(pod_data, context=array_name)
-        #    else:
-        #        print(f"Pod {pod_name} already exists on array {array_name}.")
-
-            # Create volumes
-            #create_volumes(client, array_name, app_name, num_volumes, size_volumes)
+        # Tag all volumes
+        #tag_volumes(volumes,tags)
 
     except PureError as e:
         print(f"Error initializing client: {e}")

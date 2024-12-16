@@ -7,8 +7,8 @@ from pypureclient.flasharray import Client, PureError
 
 debug=1
 
-# Function to create and tag volumes
-def create_volumes(client, arrays_name, app_name, num_volumes, size_volumes):
+# Function to find and tag volumes
+def tag_volumes(client, arrays_name, app_name, num_volumes, size_volumes):
     for i in range(num_volumes):
         volume_name = f"{pod_name}::{workload_name}::volume{i+1}"
         
@@ -31,25 +31,17 @@ def create_volumes(client, arrays_name, app_name, num_volumes, size_volumes):
             else:
                 print(f"Failed to add tags to {volume.name}. Status code: {response.status_code}, Error: {response.errors}")
 
-#def tag_volumes(volumes,tags):
 
 
 
-def list_arrays(client):
-    # Retrieve the list of FlashArrays in the fleet
-    response = client.get_fleets()
-    # Check the response
+def list_fleets():
+    # Retrieve the list of fleet, then find all of the FlashArrays and volumes associated with the fleet
+    response = client.get_fleets_members()
     if response.status_code == 200:
-        fleets = response.items
-        for fleet in fleets:
-            if debug>0:
-                print(f"Fleet Name: {fleet.name}")
-
-            for member in fleet.members:
-                print(f"  Array Name: {member.name}, Array ID: {member.id}")
-            else:
-        print(f"Failed to retrieve fleets. Status code: {response.status_code}, Error: {response.errors}")
-    return fleets
+        fleets_members=response.items
+    else:
+        print(f"Failed to retrieve fleets/members. Status code: {response.status_code}, Error: {response.errors}")
+    return(fleets_members)
 
 API_TOKEN="5887696c-bceb-1ea1-77df-f316fb18c090"
 FUSION_SERVER="pstg-fa-02.mel.aulab.purestorage.com"
@@ -63,14 +55,24 @@ if __name__ == "__main__":
     try:
         # Initialize the client
         client = Client(FUSION_SERVER,username=USER_NAME, api_token=API_TOKEN)
-        # Get the arrays for reporting contexts
-        arrays=list_arrays(client)
-        # Get all volumes on the array
-        volumes = list(client.get_volumes(context=arrays).items)
-        if debug>0 print(f{Found volumes {volumes}})
+        # Check to see minimum version of 2.37
+        #api_version = client.get_version()
+        # Check if the API version is at least 2.37
+        #required_version = '2.37'
+        #if api_version >= required_version:
+        #    print(f"API version {api_version} is valid.")
+        #else:
+        #    raise ValueError(f"API version {api_version} is not supported. Minimum required version is {required_version}.")
+        
         tags = [
             {"key": "chargeback", "value": "App1", "namespace": "Telstra-STAAS"},
         ]
+        
+        # Get the arrays for reporting contexts for the nominated fleet
+        arrays=list_fleets()
+        
+        for array in arrays:
+            print(f"Array {array.member.name} is in fleet {array.fleet.name}")
         # Tag all volumes
         #tag_volumes(volumes,tags)
 

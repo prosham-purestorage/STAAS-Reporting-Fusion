@@ -4,6 +4,8 @@ import urllib3
 
 from pypureclient import flasharray
 from pypureclient.flasharray import Client, PureError
+from pypureclient.client_settings import get_client_versions
+
 
 debug=1
 
@@ -56,13 +58,17 @@ if __name__ == "__main__":
         # Initialize the client
         client = Client(FUSION_SERVER,username=USER_NAME, api_token=API_TOKEN)
         # Check to see minimum version of 2.37
-        #api_version = client.get_version()
+        response = client.get_target_versions()
         # Check if the API version is at least 2.37
         #required_version = '2.37'
         #if api_version >= required_version:
         #    print(f"API version {api_version} is valid.")
         #else:
         #    raise ValueError(f"API version {api_version} is not supported. Minimum required version is {required_version}.")
+        if response.status_code == 200:
+            versions=response.items
+        else:
+            print(f"Failed to retrieve fleets/members. Status code: {response.status_code}, Error: {response.errors}")
         
         tags = [
             {"key": "chargeback", "value": "App1", "namespace": "Telstra-STAAS"},

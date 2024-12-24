@@ -2,44 +2,56 @@ import pandas as pd
 import pypureclient
 import urllib3
 import re
+import pprint as pp
+from datetime import datetime
 
 from pypureclient import flasharray
-from pypureclient.flasharray import Client, PureError
-#from pypureclient.client_settings import get_client_versions
+from pypureclient.flasharray import Client, PureError, Space
 
 
-debug=2
+debug=1
 
-# Find the chargeback tag on all volumes (if available), and report space used
-def process_volumes(fleet_member):
-    response = client.get_volumes(context_names=fleet_member.member.name)
-    if response.status_code == 200:
-            if debug >1:
-                print(f"finding volumes for array {fleet_member.member.name}")
-            volumes=response.items
+def report_array(fleet_member):
+    member_name = fleet_member.member.name
+    # Get the tags on the volumes from the namespace        
+    #response = Space(context_names=member_name)
+    # Check the response
+    if response.status_code != 200:
+        # The tag check didn't work
+        print(f"Failed to retrieve space from {member_name}. Status code: {response.status_code}, Error: {response.errors}")
+        return
     else:
+        pp.pprint(response.items)
+
+# Go through all volumes on this host and create a spare report by volume with volume chargeback tags
+def report_volumes(fleet_member):
+    member_name = fleet_member.member.name
+    dtnow = datetime.now().strftime("%Y-%m-%d %H:%M")
+    # Get the tags on the volumes from the namespace        
+    response = client.get_volumes_tags(context_names=member_name, namespaces=NAMESPACE)
+    # Check the response
+    if response.status_code != 200:
+        # The tag check didn't work
+        print(f"Failed to retrieve tags from {member_name}. Status code: {response.status_code}, Error: {response.errors}")
+        return
+    else:
+        for tagged_volume in response.items:
+            if (tagged_volume.namespace == NAMESPACE and tagged_volume.key == TAG_KEY):
+                tag_set[tagged_volume.resource.name]=tagged_volume.value
+
+    response = client.get_volumes(context_names=member_name)
+    if response.status_code != 200:
         print(f"Failed to retrieve volumes. Status code: {response.status_code}, Error: {response.errors}")
-        return()
-    if debug >= 2:
-            print(f"Array,Realm,Pod,Volume")
-    for volume in volumes:
-        if debug >= 2: 
-            print(f"{fleet_member.member.name},{volume.name},{volume.pod}")
+        return
+    else:
+        if debug >=2:
+            print(f"Finding volumes for array {member_name}")
+        for volume in response.items:
+            if volume.name in tag_set:
+                print(f"{NAMESPACE},{member_name},{tag_set[volume.name]},{dtnow},{volume.name},{volume.space.total_provisioned},{volume.space.total_used},{volume.space.snapshots}")
+            else:
+                print(f"{NAMESPACE},{member_name},,{dtnow},{volume.name},{volume.space.total_provisioned},{volume.space.total_used},{volume.space.snapshots}")
         
-        response = client.get_volumes_tags(context_names=fleet_member.member.name, resource_names=volume.name, namespaces=NAMESPACE)
-        # Check the response
-        if response.status_code == 200:
-            if debug >=2:
-                print(f"Tags present on volume {volume.name} - {response.items}.")
-            response = client.delete_volumes_tags(context_names=fleet_member.member.name, resource_names=volume.name, namespaces=NAMESPACE, keys=TAG_KEY)
-        
-        response = client.put_volumes_tags_batch(context_names=fleet_member.member.name, resource_names=volume.name, tag=tags)
-        # Check the response
-        if response.status_code == 200:
-            if debug >=1:
-                print(f"Tags added successfully to volume {volume.name}.")
-        else:
-            print(f"Failed to add tags to {volume.name}. Status code: {response.status_code}, Error: {response.errors}")
 
 def list_fleets():
     # Retrieve the list of fleets, then find all of the FlashArrays and volumes associated with the fleet
@@ -86,6 +98,8 @@ USER_NAME=""
 TAG_API_TOKEN=""
 FUSION_SERVER=""
 NAMESPACE=""
+TAGGING_RULES = {}
+tag_set={}
 
 # Disable certificate warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -93,11 +107,9 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 if __name__ == "__main__":
     # Read the Excel file
     spreadsheet = pd.ExcelFile('STAAS_Tagging.xlsx')
-
-    # Parse the specific sheet
+    # Extract global variables from the Fleet sheet
     fleet_df = spreadsheet.parse('Fleet')
 
-    # Extract global variables
     global_variables = fleet_df.iloc[0].to_dict()
 
     # Assign global variables
@@ -106,21 +118,6 @@ if __name__ == "__main__":
     FUSION_SERVER = global_variables.get('FUSION_SERVER', '')
     NAMESPACE = global_variables.get('NAMESPACE', '')
     TAG_KEY = "chargeback"
-
-    #tags_df = spreadsheet.parse('Tagging')
-    # Construct the dictionary of tagging rules
-    #tagging_rules = {}
-    #for index, row in tags_df.iterrows():
-    #    accessed_by = row['Accessed_by']
-    #    re_name = row['RE_Name']
-    #    application = row['Application']
-    #    tagging_rules[accessed_by] = {
-    #        're_name': re_name,
-    #        'application': application
-    #    }
-
-    #print(tagging_rules)
-
 
     try:
         # Initialize the client
@@ -133,12 +130,10 @@ if __name__ == "__main__":
     if not check_api_version(2.38):
         exit(2)
         
-    tags = [
-        { "namespace": NAMESPACE, "key": TAG_KEY, "value": "IT"}
-    ]
-        
     # Get the arrays for reporting contexts for the nominated fleet
-    for member in list_fleets():
-        # Tag all volumes in pods for arrays in the fleet
-        process_volumes(member)
+    for fleet_members in list_fleets():
+        # Go over all members of the fleet
+        #report_array(fleet_members)
+        report_volumes(fleet_members)
 
+    for 

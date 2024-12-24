@@ -8,100 +8,145 @@ from pypureclient import flasharray
 from pypureclient.flasharray import Client, PureError
 
 
-debug=2
+debug=4
 
 # If the volume is in a realm or pod, grab those names
 def match_volume_name(volume_name):
-    pattern = r'^(?:(\w+)::)?(?:(\w+)::)?(\w+)$'
-    match = re.match(pattern, volume_name)
+    realmpattern = r'^([\w.-]+)::([\w.-]+)::([\w.-]+)$'
+    podpattern = r'^([\w.-]+)::([\w.-]+)$'
+    volpattern = r'^[\w-]+(?:/[\w-]+)*$'
+    
+    match = re.match(realmpattern, volume_name)
     if match:
-        realm, pod, volume = match.groups()
+        groups = match.groups()
         return {
-            'realm': realm,
-            'pod': pod,
-            'volume': volume
+            'realm': groups[0],
+            'pod': groups[1],
+            'volume': groups[2]
         }
-    else:
-        return None
 
+    match = re.match(podpattern, volume_name)
+    if match:
+        groups = match.groups()
+        return {
+            'realm': None,
+            'pod': groups[0],
+            'volume': groups[1]
+        }
+
+    match = re.match(volpattern, volume_name)
+    if match:
+        return {
+            'realm': None,
+            'pod': None,
+            'volume': volume_name
+        }
+    
 # get the tag value for any tagging_rule
 def get_tag_value(tag_by, container_name):
     if tag_by in TAGGING_RULES and container_name in TAGGING_RULES[tag_by]:
         return TAGGING_RULES[tag_by][container_name]
     return None
 
-def tag_volume(fleet_member,volume,namespace, key,value):
+def tag_volume(fleet_member,volume_list,namespace, key,value):
     tags = [
         {"namespace": namespace, "key": key, "value": value}
     ]
     # See if there are any of the tags we are adding already on the volume        
-    response = client.get_volumes_tags(context_names=fleet_member.member.name, resource_names=volume.name, namespaces=namespace)
+    #response = client.get_volumes_tags(context_names=fleet_member, resource_names=volume_list, namespaces=namespace)
     # Check the response
-    if response.status_code != 200:
+    #if response.status_code != 200:
         # The tag check didn't work
-        print(f"Failed to retrieve tags from {volume.name}. Status code: {response.status_code}, Error: {response.errors}")
-        return
-    else:
+    #    print(f"Failed to retrieve tags from {fleet_member},{volume_list}. Status code: {response.status_code}, Error: {response.errors}")
+    #    return
+    #else:
         # Remove the existing chargeback tag
-        response = client.delete_volumes_tags(context_names=fleet_member.member.name, resource_names=volume.name, namespaces=namespace, keys=key)
+        # response = client.delete_volumes_tags(context_names=fleet_member, resource_names=volume_list, namespaces=namespace, keys=key)
         # Check the response
-        if response.status_code == 200:
-            if debug >=2:
-                print(f"Tags removed successfully to volume {fleet_member.member.name},{volume.name},{tags}.")
-        else:
-            print(f"Couldn't remove tags from volume {fleet_member.member.name},{volume.name},{tags}.")
+        #if response.status_code == 202:
+        #    if debug >=4:
+        #        print(f"Tags removed successfully to volume {fleet_member},{volume_list},{tags}.")
+        #else:
+        #    print(f"Couldn't remove tags from volume {fleet_member},{volume_list},{tags}.")
+
     # Add the chargeback tag
-    response = client.put_volumes_tags_batch(context_names=fleet_member.member.name, resource_names=volume.name, tag=tags)
+    response = client.put_volumes_tags_batch(context_names=fleet_member, resource_names=volume_list, tag=tags)
     # Check the response
     if response.status_code == 200:
-        if debug >=2:
-            print(f"Tags added successfully to volume {fleet_member.member.name},{volume.name},{tags}.")
+        if debug >=4:
+            print(f"Tags added successfully to volume {fleet_member},{volume_list},{tags}.")
     else:
-        print(f"Failed to add tags to {fleet_member.member.name},{volume.name},{tags}. Status code: {response.status_code}, Error: {response.errors}")
-    
-    if (debug >= 3): 
-        print(f"{namespace},{array_name},{volume.name},{volume.space.total_provisioned},{volume.space.total_used},{volume.space.snapshots}")
+        print(f"Failed to add tags to {fleet_member},{volume_list},{tags}. Status code: {response.status_code}, Error: {response.errors}")
     
 
-# Go through all volumes on this host and tag the volumes according to the tagging plan
+# Go through all volumes on this host and create an array of tags with volume names according to the tagging plan
 def process_volumes(fleet_member):
+    tag_set={}
     response = client.get_volumes(context_names=fleet_member.member.name)
     if response.status_code == 200:
-            if debug >1:
-                print(f"finding volumes for array {fleet_member.member.name}")
-            volumes=response.items
+        if debug >=2:
+            print(f"finding volumes for array {fleet_member.member.name}")
+        volumes = response.items
     else:
         print(f"Failed to retrieve volumes. Status code: {response.status_code}, Error: {response.errors}")
-        return()
+        return
     
     for volume in volumes:
         result = match_volume_name(volume.name)
+        volume_group = volume.volume_group
         
-        vols_realm = result.get("realm")
-        vols_pod = result.get("pod")
+        realm = result.get("realm")
+        pod = result.get("pod")
+        if realm:
+            tag_value = get_tag_value("realm", realm)
+            if tag_value:
+                if debug >= 5:
+                    print(f'Tag value for realm {realm}: {tag_value}')
+            else:
+                if debug >= 5:
+                    print(f'No tagging rule found for realm {realm}')
+                tag_value = get_tag_value("default", "default")
 
-        if vols_realm:
-            tag_by = 'realm'
-            tag_value = get_tag_value(tag_by, vols_realm)
-            if tag_value and debug >=2:
-                print(f'Tag value for {tag_by} {vols_realm}: {tag_value}')
-            elif debug >=2:
-                print(f'No tagging rule found for {tag_by} {container_name}')
-        elif vols_pod:
-            tag_by = 'pod'
-            tag_value = get_tag_value(tag_by, vols_pod)
-            if tag_value and debug >=2:
-                print(f'Tag value for {tag_by} {vols_pod}: {tag_value}')
-            elif debug >=2:
-                print(f'No tagging rule found for {tag_by} {vols_pod}')
+            if tag_value not in tag_set:
+                tag_set[tag_value]={}
+            if realm not in tag_set[tag_value]:
+                tag_set[tag_value][realm]=[]
+            tag_set[tag_value][realm].append(volume.name)
+
+        elif pod:
+            tag_value = get_tag_value("pod", pod)
+            if tag_value: 
+                if debug >= 5:
+                    print(f'Tag value for pod {pod}: {tag_value}')
+            else:
+                if debug >= 5:
+                    print(f'No tagging rule found for pod {pod}')                
+                tag_value = get_tag_value("default", "default")
+
+            if tag_value not in tag_set:
+                tag_set[tag_value]={}
+            if pod not in tag_set[tag_value]:
+                tag_set[tag_value][pod]=[]
+            tag_set[tag_value][pod].append(volume.name)
         else:
-            tag_value = get_tag_value("default","default")
-    
-        if debug >=1:
+            if debug >= 5:
+                print(f'Plain volume name: {volume.name}')
+            tag_value = get_tag_value("default", "default")
+            if tag_value not in tag_set:
+                tag_set[tag_value]={}
+            if fleet_member.member.name not in tag_set[tag_value]:
+                tag_set[tag_value][fleet_member.member.name]=[]
+            tag_set[tag_value][fleet_member.member.name].append(volume.name)
+        
+        if debug >= 3:
             print(f"Tagging array {fleet_member.member.name} volume {volume.name}, in namespace {NAMESPACE} with tag {TAG_KEY}: {tag_value}")
 
-        tag_volume(fleet_member,volume,NAMESPACE,TAG_KEY,tag_value)
-                            
+    # Tag the volumes by tag value
+    for tag_value,bucket in tag_set.items():
+        for bucket_name, volume_names in bucket.items():
+            if debug >= 2:
+                print(f"tag_volume({fleet_member.member.name}, {volume_names}, {NAMESPACE}, {TAG_KEY}, {tag_value}")                           
+        tag_volume(fleet_member.member.name, volume_names, NAMESPACE, TAG_KEY, tag_value)                           
 
 def list_fleets():
     # Retrieve the list of fleets, then find all of the FlashArrays and volumes associated with the fleet
@@ -192,7 +237,4 @@ if __name__ == "__main__":
         
     # Get the arrays for reporting contexts for the nominated fleet
     for member in list_fleets():
-        # Go over all members of the fleet
-        if debug >= 3:
-            print(f"Tag,Array,Volume,Allocated,Used,Snapshots")
         process_volumes(member)

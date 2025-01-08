@@ -39,4 +39,14 @@ The worksheet named 'Tagging_map' contains the rules for the tagging process, th
     host (not yet implemented)
 
 These are in decreasing order of precedence - the first match on a volume wins the tag for that container.
-The script 'staas-tag.vols.py' will connect to a server in the fleet, and for each member of the fleet, retrieve the volumes and apply a tag called 'chargeback' in the namespace NAMESPACE, and give it a value based on the container (realm, pod, hostgroup or host) defined in the tagging rules spreadsheet. If there are no matches, a default value should be defined in the Tagging_rules worksheet and that will be applied.
+The script 'staas-tag_vols.py' will connect to a server in the fleet, and for each member of the fleet, retrieve the volumes and apply a tag called 'chargeback' in the namespace
+NAMESPACE, and give it a value based on the container (realm, pod, hostgroup or host) defined in the tagging rules spreadsheet. If there are no matches, a default value should be
+defined in the Tagging_rules worksheet and that will be applied.
+
+### Reporting
+The script staas-reporting.py will connect to the fleet and generate a spreadsheet 'STAAS-Reporting.xls' with a worksheet per detected chargeback tag value, and one for volumes that
+have no tag.
+
+The space records are date/time stamped so that space can be rated externally over time.
+
+An space overview of the fleet will be added in a future iteration

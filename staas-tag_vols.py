@@ -1,19 +1,32 @@
 # This file is part of STAAS-Reporting-Fusion.
 #
-# STAAS-Reporting-Fusion is free software: you can redistribute it and/or modify
-# it under the terms of the GNU General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
+# STAAS-Reporting-Fusion is licensed under the BSD 2-Clause License.
+# You may obtain a copy of the License at
 #
-# STAAS-Reporting-Fusion is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-# GNU General Public License for more details.
+#     https://opensource.org/licenses/BSD-2-Clause
 #
-# You should have received a copy of the GNU General Public License
-# along with STAAS-Reporting-Fusion. If not, see <http://www.gnu.org/licenses/>.
+# Redistribution and use in source and binary forms, with or without
+# modification, are permitted provided that the following conditions are met:
+#
+# 1. Redistributions of source code must retain the above copyright notice,
+#    this list of conditions and the following disclaimer.
+# 2. Redistributions in binary form must reproduce the above copyright notice,
+#    this list of conditions and the following disclaimer in the documentation
+#    and/or other materials provided with the distribution.
+#
+# THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+# AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+# IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+# ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+# LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+# CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+# SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+# INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+# CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+# ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+# POSSIBILITY OF SUCH DAMAGE.
 
-import staascommon
+import os
 import pandas as pd
 import pypureclient
 import urllib3
@@ -22,8 +35,7 @@ import pprint as pp
 
 from pypureclient import flasharray
 from pypureclient.flasharray import Client, PureError
-
-from staas-common import check_admin_level, initialize_client
+from staas_common import check_purity_role, check_api_version, initialise_client, list_fleets
 
 debug=4
 
@@ -169,35 +181,6 @@ def process_volumes(fleet_member):
                 print(f"tag_volume({fleet_member.member.name}, {volume_names}, {tag_value}")                           
         tag_volume(fleet_member.member.name, volume_names, tag_value)                           
 
-def list_fleets():
-    # Retrieve the list of fleets, then find all of the FlashArrays and volumes associated with the fleet
-    response = client.get_fleets_members()
-    if response.status_code == 200:
-        fleets_members=response.items
-    else:
-        print(f"Failed to retrieve fleets/members. Status code: {response.status_code}, Error: {response.errors}")
-    return(fleets_members)
-
-    
-# Function to check admin level
-def check_admin_level(desired_role):
-    try:
-        response = client.get_admins()
-        if response.status_code == 200:
-            admins = response.items
-            for admin in admins:
-                if admin.name == USER_NAME:
-                    if debug >= 1:
-                        print(f'User {USER_NAME} has admin level: {admin.role}')
-                    if admin.role == desired_role:
-                        return True
-                    else:
-        elif response.status_code == 400:
-            print(f'Failed to get admins: {response.errors}')
-            return False
-    except PureError as e:
-        print(f'Error checking admin level: {e}')
-
 USER_NAME=""
 TAG_API_TOKEN=""
 FUSION_SERVER=""
@@ -210,22 +193,20 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # Main script
 if __name__ == "__main__":
     # Read the Excel file
-    spreadsheet = pd.ExcelFile('STAAS_Tagging.xlsx')
+    tagging_spreadsheet = pd.ExcelFile('STAAS_Tagging.xlsx')
     # Extract global variables from the Fleet sheet
-    fleet_df = spreadsheet.parse('Fleet')
+    fleet_df = tagging_spreadsheet.parse('Fleet')
 
     global_variables = fleet_df.iloc[0].to_dict()
 
     # Assign global variables
     USER_NAME = os.getenv('PURE_USER_NAME')
     API_TOKEN = os.getenv('PURE_API_TOKEN')
-    print(f"USER_NAME: {USER_NAME}")
-    print(f"API_TOKEN: {API_TOKEN}")
     FUSION_SERVER = global_variables.get('FUSION_SERVER', '')
     NAMESPACE = global_variables.get('NAMESPACE', '')
 
     # Create a tagging plan from the Tagging_map sheet
-    tags_df = spreadsheet.parse('Tagging_map')
+    tags_df = tagging_spreadsheet.parse('Tagging_map')
     # Construct the dictionary of tagging rules
     for index, row in tags_df.iterrows():
         tag_by = row['Tag_By']
@@ -235,20 +216,19 @@ if __name__ == "__main__":
             TAGGING_RULES[tag_by] = {}
         TAGGING_RULES[tag_by][container_name] = tag_value
 
-    try:
-        # Initialize the client
-        client = Client(FUSION_SERVER,username=USER_NAME, api_token=API_TOKEN)
-    except PureError as e:
-        print(f"Error initializing client: {e}")
-    # Check to see minimum version of 2.38 & array admin privileges for this user
-    if not check_admin_level("array_admin"):
+    # Check to see that we can open a connection, with array admin privileges for this user & minimum FA API version of 2.38 
+    client = initialise_client(FUSION_SERVER,USER_NAME, API_TOKEN)
+    if not client:
         exit(1)
-    if not check_api_version(2.38):
+    role = check_purity_role(client, USER_NAME)
+    if not role == "array_admin":
         exit(2)
+    if not check_api_version(client, 2.38):
+        exit(3)
     if not TAGGING_RULES or not TAGGING_RULES.get("default"):
         print(f"No tagging rules found")
-        exit(3)
+        exit(4)
 
     # Get the arrays for reporting contexts for the nominated fleet
-    for member in list_fleets():
+    for member in list_fleets(client):
         process_volumes(member)

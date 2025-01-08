@@ -1,3 +1,19 @@
+# This file is part of STAAS-Reporting-Fusion.
+#
+# STAAS-Reporting-Fusion is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# STAAS-Reporting-Fusion is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with STAAS-Reporting-Fusion. If not, see <http://www.gnu.org/licenses/>.
+
+import staascommon
 import pandas as pd
 import pypureclient
 import urllib3
@@ -7,6 +23,7 @@ import pprint as pp
 from pypureclient import flasharray
 from pypureclient.flasharray import Client, PureError
 
+from staas-common import check_admin_level, initialize_client
 
 debug=4
 
@@ -48,9 +65,9 @@ def get_tag_value(tag_by, container_name):
         return TAGGING_RULES[tag_by][container_name]
     return None
 
-def tag_volume(fleet_member,volume_list,namespace, key,value):
+def tag_volume(fleet_member,volume_list,value):
     tags = [
-        {"namespace": namespace, "key": key, "value": value}
+        {"namespace": NAMESPACE, "key": TAG_KEY, "value": value}
     ]
     # See if there are any of the tags we are adding already on the volume        
     #response = client.get_volumes_tags(context_names=fleet_member, resource_names=volume_list, namespaces=namespace)
@@ -92,6 +109,10 @@ def process_volumes(fleet_member):
         return
     
     for volume in volumes:
+        if volume.subtype != 'regular':
+            if debug >= 4:
+                print(f'Non-regular volume {volume.name} found - not tagging it.')
+            continue;
         result = match_volume_name(volume.name)
         volume_group = volume.volume_group
         
@@ -145,8 +166,8 @@ def process_volumes(fleet_member):
     for tag_value,bucket in tag_set.items():
         for bucket_name, volume_names in bucket.items():
             if debug >= 2:
-                print(f"tag_volume({fleet_member.member.name}, {volume_names}, {NAMESPACE}, {TAG_KEY}, {tag_value}")                           
-        tag_volume(fleet_member.member.name, volume_names, NAMESPACE, TAG_KEY, tag_value)                           
+                print(f"tag_volume({fleet_member.member.name}, {volume_names}, {tag_value}")                           
+        tag_volume(fleet_member.member.name, volume_names, tag_value)                           
 
 def list_fleets():
     # Retrieve the list of fleets, then find all of the FlashArrays and volumes associated with the fleet
@@ -157,17 +178,6 @@ def list_fleets():
         print(f"Failed to retrieve fleets/members. Status code: {response.status_code}, Error: {response.errors}")
     return(fleets_members)
 
-# Check API version
-def check_api_version(level):
-    version = client.get_rest_version()
-    
-    if float(version) >= level:
-        return True
-    else:
-        if debug >= 1:
-            print(f'API Version: {version}')
-            print(f"API version needs to support Fusion v2 at a minimum.")
-        return False
     
 # Function to check admin level
 def check_admin_level(desired_role):
@@ -182,10 +192,9 @@ def check_admin_level(desired_role):
                     if admin.role == desired_role:
                         return True
                     else:
-                        print(f'User {USER_NAME} does not have admin privileges.')
-                        return True
-        else:
+        elif response.status_code == 400:
             print(f'Failed to get admins: {response.errors}')
+            return False
     except PureError as e:
         print(f'Error checking admin level: {e}')
 
@@ -193,6 +202,7 @@ USER_NAME=""
 TAG_API_TOKEN=""
 FUSION_SERVER=""
 NAMESPACE=""
+TAG_KEY = "chargeback"
 TAGGING_RULES = {}
 
 # Disable certificate warnings
@@ -207,11 +217,12 @@ if __name__ == "__main__":
     global_variables = fleet_df.iloc[0].to_dict()
 
     # Assign global variables
-    USER_NAME = global_variables.get('USER_NAME', '')
-    API_TOKEN = global_variables.get('API_TOKEN', '')
+    USER_NAME = os.getenv('PURE_USER_NAME')
+    API_TOKEN = os.getenv('PURE_API_TOKEN')
+    print(f"USER_NAME: {USER_NAME}")
+    print(f"API_TOKEN: {API_TOKEN}")
     FUSION_SERVER = global_variables.get('FUSION_SERVER', '')
     NAMESPACE = global_variables.get('NAMESPACE', '')
-    TAG_KEY = "chargeback"
 
     # Create a tagging plan from the Tagging_map sheet
     tags_df = spreadsheet.parse('Tagging_map')
@@ -234,7 +245,10 @@ if __name__ == "__main__":
         exit(1)
     if not check_api_version(2.38):
         exit(2)
-        
+    if not TAGGING_RULES or not TAGGING_RULES.get("default"):
+        print(f"No tagging rules found")
+        exit(3)
+
     # Get the arrays for reporting contexts for the nominated fleet
     for member in list_fleets():
         process_volumes(member)

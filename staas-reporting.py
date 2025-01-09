@@ -37,7 +37,7 @@ from openpyxl import load_workbook
 from datetime import datetime
 from pypureclient import flasharray
 from pypureclient.flasharray import Client, PureError
-from staas_common import check_purity_role, check_api_version, initialise_client, list_fleets
+from staas_common import parse_arguments, check_purity_role, check_api_version, initialise_client, list_fleets
 
 debug = 2
 
@@ -139,11 +139,17 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # Main script
 if __name__ == "__main__":
-    # Read the Excel file
-    tagging_spreadsheet = pd.ExcelFile('STAAS_Tagging.xlsx')
-    # Extract global variables from the Fleet sheet
-    fleet_df = tagging_spreadsheet.parse('Fleet')
+    # Parse command-line arguments
+    args = parse_arguments()
 
+    # Read the configuration file
+    config_path = args.config
+    config_spreadsheet = pd.ExcelFile(config_path)
+
+    # Read the Excel file
+    fleet_df = config_spreadsheet.parse('Fleet')
+
+    # Extract global variables from the Fleet sheet
     global_variables = fleet_df.iloc[0].to_dict()
 
     # Assign global variables
@@ -178,12 +184,12 @@ if __name__ == "__main__":
         all_volumes_without_tag.extend(volumes_without_tag)
 
     # Create or append to the reporting spreadsheet
-    file_path = 'STAAS_Reporting.xlsx'
+    report_path = args.report
     try:
-        if os.path.exists(file_path):
+        if os.path.exists(report_path):
             try:
-                book = load_workbook(file_path)
-                with pd.ExcelWriter(file_path, engine='openpyxl', mode='a', if_sheet_exists='overlay') as writer:
+                book = load_workbook(report_path)
+                with pd.ExcelWriter(report_path, engine='openpyxl', mode='a', if_sheet_exists='overlay') as writer:
                     writer.book = book
                     for tag, volumes in all_volumes_by_tag.items():
                         df = pd.DataFrame(volumes)

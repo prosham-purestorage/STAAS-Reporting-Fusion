@@ -33,14 +33,21 @@ import pypureclient
 import urllib3
 import re
 import pprint as pp
+import argparse
 
 from openpyxl import load_workbook
 from datetime import datetime
 from pypureclient import flasharray
 from pypureclient.flasharray import Client, PureError
-from staas_common import check_purity_role, check_api_version, initialise_client, list_fleets
 
 debug = 4
+
+
+def parse_arguments():
+    parser = argparse.ArgumentParser(description='STAAS Reporting Scripts')
+    parser.add_argument('--config', type=str, required=True, help='Path to the configuration file')
+    parser.add_argument('--report', type=str, required=True, help='Path to the reporting file')
+    return parser.parse_args()
 
 def read_volume_tags(fleet_member_name, volumes):
     tags = {}
@@ -220,7 +227,7 @@ if __name__ == "__main__":
                     df.to_excel(writer, sheet_name='No Tag', index=False)
     except PermissionError as e:
         print(f"PermissionError: {e}. Please ensure the file is not open in another application.")
-```python
+
 # get a list of fleets from this array
 def list_fleets(client):
     # Retrieve the list of fleets, then find all of the FlashArrays and volumes associated with the fleet

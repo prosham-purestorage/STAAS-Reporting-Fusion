@@ -35,7 +35,7 @@ import pprint as pp
 
 from pypureclient import flasharray
 from pypureclient.flasharray import Client, PureError
-from staas_common import check_purity_role, check_api_version, initialise_client, list_fleets
+from staas_common import parse_arguments, check_purity_role, check_api_version, initialise_client, list_fleets
 
 debug=4
 
@@ -192,10 +192,15 @@ TAGGING_RULES = {}
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # Main script
 if __name__ == "__main__":
+    # Parse command-line arguments
+    args = parse_arguments()
+
+    # Read the configuration file
+    config_path = args.config
     # Read the Excel file
-    tagging_spreadsheet = pd.ExcelFile('STAAS_Tagging.xlsx')
+    config_spreadsheet = pd.ExcelFile(config_path)
     # Extract global variables from the Fleet sheet
-    fleet_df = tagging_spreadsheet.parse('Fleet')
+    fleet_df = config_spreadsheet.parse('Fleet')
 
     global_variables = fleet_df.iloc[0].to_dict()
 

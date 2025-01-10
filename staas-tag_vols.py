@@ -193,10 +193,10 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # Main script
 if __name__ == "__main__":
     # Parse command-line arguments
-    args = parse_arguments()
+    args = parse_arguments("config")
 
     # Read the configuration file
-    config_path = args.config
+    config_path = os.path.join(args.config)
     # Read the Excel file
     config_spreadsheet = pd.ExcelFile(config_path)
     # Extract global variables from the Fleet sheet
@@ -211,7 +211,7 @@ if __name__ == "__main__":
     NAMESPACE = global_variables.get('NAMESPACE', '')
 
     # Create a tagging plan from the Tagging_map sheet
-    tags_df = tagging_spreadsheet.parse('Tagging_map')
+    tags_df = config_spreadsheet.parse('Tagging_map')
     # Construct the dictionary of tagging rules
     for index, row in tags_df.iterrows():
         tag_by = row['Tag_By']

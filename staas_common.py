@@ -34,6 +34,7 @@ import urllib3
 import re
 import pprint as pp
 import argparse
+import sys
 
 from openpyxl import load_workbook
 from datetime import datetime
@@ -42,12 +43,17 @@ from pypureclient.flasharray import Client, PureError
 
 debug = 4
 
-
-def parse_arguments():
+def parse_arguments(options):
     parser = argparse.ArgumentParser(description='STAAS Reporting Scripts')
     parser.add_argument('--config', type=str, required=True, help='Path to the configuration file')
-    parser.add_argument('--report', type=str, required=True, help='Path to the reporting file')
-    return parser.parse_args()
+    if options == "report":
+        parser.add_argument('--report', type=str, required=True, help='Path to the reporting file')
+    try:
+        return parser.parse_args()
+    except SystemExit as e:
+        if e.code != 0:
+            print(f"Error parsing arguments: {e}")
+        sys.exit(e.code)
 
 def read_volume_tags(fleet_member_name, volumes):
     tags = {}

@@ -37,7 +37,7 @@ from openpyxl import load_workbook
 from datetime import datetime
 from pypureclient import flasharray
 from pypureclient.flasharray import Client, PureError
-from staas_common import parse_arguments, check_purity_role, check_api_version, initialise_client, list_fleets
+from staas_common import check_purity_role, check_api_version, initialise_client, list_fleets, parse_arguments
 
 debug = 2
 
@@ -63,7 +63,7 @@ def get_volume_space(fleet_member_name, volumes):
     space_values = {}
     response = client.get_volumes_space(context_names=fleet_member_name, names=volumes)
     if response.status_code == 200:
-        if debug >= 4:
+        if debug >= 2:
             print(f"Space values for volumes in array {fleet_member_name}")
         for volume in response.items:
             space_values[volume.name] = volume.space.__dict__
@@ -76,7 +76,7 @@ def report_volumes(fleet_member_name):
     volume_set = []
     response = client.get_volumes(context_names=fleet_member_name)
     if response.status_code == 200:
-        if debug >= 4:
+        if debug >= 2:
             print(f"Finding volumes for array {fleet_member_name}")
 
         for volume in response.items:
@@ -140,10 +140,10 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # Main script
 if __name__ == "__main__":
     # Parse command-line arguments
-    args = parse_arguments()
+    args = parse_arguments("report")
 
     # Read the configuration file
-    config_path = args.config
+    config_path = os.path.join(args.config)
     config_spreadsheet = pd.ExcelFile(config_path)
 
     # Read the Excel file
@@ -184,7 +184,7 @@ if __name__ == "__main__":
         all_volumes_without_tag.extend(volumes_without_tag)
 
     # Create or append to the reporting spreadsheet
-    report_path = args.report
+    report_path = os.path.join(args.report)
     try:
         if os.path.exists(report_path):
             try:
@@ -208,7 +208,7 @@ if __name__ == "__main__":
                             df.to_excel(writer, sheet_name='No Tag', index=False)
             except KeyError as e:
                 print(f"KeyError: {e}. The file might be corrupted. Creating a new file.")
-                with pd.ExcelWriter(file_path, engine='openpyxl') as writer:
+                with pd.ExcelWriter(report_path, engine='openpyxl') as writer:
                     for tag, volumes in all_volumes_by_tag.items():
                         df = pd.DataFrame(volumes)
                         df.to_excel(writer, sheet_name=f"Chargeback {tag}", index=False)
@@ -216,7 +216,7 @@ if __name__ == "__main__":
                         df = pd.DataFrame(all_volumes_without_tag)
                         df.to_excel(writer, sheet_name='No Tag', index=False)
         else:
-            with pd.ExcelWriter(file_path, engine='openpyxl') as writer:
+            with pd.ExcelWriter(report_path, engine='openpyxl') as writer:
                 for tag, volumes in all_volumes_by_tag.items():
                     df = pd.DataFrame(volumes)
                     df.to_excel(writer, sheet_name=f"Chargeback {tag}", index=False)

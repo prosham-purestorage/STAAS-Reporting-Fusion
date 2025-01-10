@@ -26,5 +26,5 @@ Thumbs.db
 # Ignore compiled C extensions
 *.so
 
-# Ignore STAAS_Reporting.xlsx file
-STAAS_Reporting.xlsx
+# Ignore STAAS_*.xlsx files
+STAAS_*.xlsx

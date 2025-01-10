@@ -1,0 +1,29 @@
+{
+    "python.linting.enabled": true,
+    "python.linting.pylintEnabled": true,
+    "python.linting.flake8Enabled": true,
+    "python.formatting.provider": "black",
+    "python.testing.unittestEnabled": true,
+    "python.testing.pytestEnabled": true,
+    "python.testing.nosetestsEnabled": false,
+    "launch": {
+        "configurations": [
+            {
+                "name": "Python: Run STAAS-Reporting",
+                "type": "python",
+                "request": "launch",
+                "program": "${workspaceFolder}${pathSeparator}staas-reporting.py",
+                "args": ["--config", "${workspaceFolder}${pathSeparator}STAAS_Config.xlsx", "--report", "${workspaceFolder}${pathSeparator}STAAS-Reports-2025-01.xlsx"],
+                "console": "integratedTerminal"
+            },
+            {
+                "name": "Python: Run STAAS-Tag-Vols",
+                "type": "python",
+                "request": "launch",
+                "program": "${workspaceFolder}${pathSeparator}staas-tag_vols.py",
+                "args": ["--config", "${workspaceFolder}${pathSeparator}STAAS_Config.xlsx", 
+                "console": "integratedTerminal"
+            }
+        ]
+    }
+}

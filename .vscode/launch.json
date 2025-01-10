@@ -1,12 +1,13 @@
 {
     "version": "0.2.0",
     "configurations": [
+
         {
             "name": "Python: Run STAAS-Reporting",
             "type": "python",
             "request": "launch",
             "program": "${workspaceFolder}/staas-reporting.py",
-            "args": ["--config", "${workspaceFolder}/STAAS-Tagging.xlsx", "--report", "${workspaceFolder}/STAAS-Reports-2025-01.xlsx"],
+            "args": ["--config", "${workspaceFolder}${pathSeparator}STAAS_Config.xlsx", "--report", "${workspaceFolder}${pathSeparator}STAAS-Reports-2025-01.xlsx"],
             "console": "integratedTerminal"
         },
         {
@@ -14,7 +15,7 @@
             "type": "python",
             "request": "launch",
             "program": "${workspaceFolder}/staas-tag_vols.py",
-            "args": ["--config", "${workspaceFolder}/STAAS-Tagging.xlsx", "--report", "${workspaceFolder}/STAAS-Reports-2025-01.xlsx"],
+            "args": ["--config", "${workspaceFolder}${pathSeparator}STAAS_Config.xlsx"],
             "console": "integratedTerminal"
         }
     ]

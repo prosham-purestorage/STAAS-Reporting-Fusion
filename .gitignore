@@ -27,4 +27,4 @@ Thumbs.db
 *.so
 
 # Ignore STAAS-Reports*.xlsx files
-STAAS-Reports*.xlsx
+STAAS-R*.xlsx

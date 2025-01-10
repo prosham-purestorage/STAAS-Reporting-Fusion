@@ -35,9 +35,16 @@ import pprint as pp
 
 from pypureclient import flasharray
 from pypureclient.flasharray import Client, PureError
-from staas_common import parse_arguments, check_purity_role, check_api_version, initialise_client, list_fleets
+from staas_common import (
+    parse_arguments,
+    check_purity_role,
+    check_api_version,
+    initialise_client,
+    list_fleets,
+    list_members
+)
 
-debug=4
+debug=2
 
 # If the volume is in a realm or pod, grab those names
 def match_volume_name(volume_name):
@@ -81,25 +88,8 @@ def tag_volume(fleet_member,volume_list,value):
     tags = [
         {"namespace": NAMESPACE, "key": TAG_KEY, "value": value}
     ]
-    # See if there are any of the tags we are adding already on the volume        
-    #response = client.get_volumes_tags(context_names=fleet_member, resource_names=volume_list, namespaces=namespace)
-    # Check the response
-    #if response.status_code != 200:
-        # The tag check didn't work
-    #    print(f"Failed to retrieve tags from {fleet_member},{volume_list}. Status code: {response.status_code}, Error: {response.errors}")
-    #    return
-    #else:
-        # Remove the existing chargeback tag
-        # response = client.delete_volumes_tags(context_names=fleet_member, resource_names=volume_list, namespaces=namespace, keys=key)
-        # Check the response
-        #if response.status_code == 202:
-        #    if debug >=4:
-        #        print(f"Tags removed successfully to volume {fleet_member},{volume_list},{tags}.")
-        #else:
-        #    print(f"Couldn't remove tags from volume {fleet_member},{volume_list},{tags}.")
-
     # Add the chargeback tag
-    response = client.put_volumes_tags_batch(context_names=fleet_member, resource_names=volume_list, tag=tags)
+    response = client.put_volumes_tags_batch(context_names=[fleet_member], resource_names=volume_list, tag=tags)
     # Check the response
     if response.status_code == 200:
         if debug >=4:
@@ -111,10 +101,10 @@ def tag_volume(fleet_member,volume_list,value):
 # Go through all volumes on this host and create an array of tags with volume names according to the tagging plan
 def process_volumes(fleet_member):
     tag_set={}
-    response = client.get_volumes(context_names=fleet_member.member.name)
+    response = client.get_volumes(context_names=fleet_member)
     if response.status_code == 200:
         if debug >=2:
-            print(f"finding volumes for array {fleet_member.member.name}")
+            print(f"finding volumes for array {fleet_member}")
         volumes = response.items
     else:
         print(f"Failed to retrieve volumes. Status code: {response.status_code}, Error: {response.errors}")
@@ -167,19 +157,19 @@ def process_volumes(fleet_member):
             tag_value = get_tag_value("default", "default")
             if tag_value not in tag_set:
                 tag_set[tag_value]={}
-            if fleet_member.member.name not in tag_set[tag_value]:
-                tag_set[tag_value][fleet_member.member.name]=[]
-            tag_set[tag_value][fleet_member.member.name].append(volume.name)
+            if fleet_member not in tag_set[tag_value]:
+                tag_set[tag_value][fleet_member]=[]
+            tag_set[tag_value][fleet_member].append(volume.name)
         
         if debug >= 3:
-            print(f"Tagging array {fleet_member.member.name} volume {volume.name}, in namespace {NAMESPACE} with tag {TAG_KEY}: {tag_value}")
+            print(f"Tagging array {fleet_member} volume {volume.name}, in namespace {NAMESPACE} with tag {TAG_KEY}: {tag_value}")
 
     # Tag the volumes by tag value
     for tag_value,bucket in tag_set.items():
         for bucket_name, volume_names in bucket.items():
             if debug >= 2:
-                print(f"tag_volume({fleet_member.member.name}, {volume_names}, {tag_value}")                           
-        tag_volume(fleet_member.member.name, volume_names, tag_value)                           
+                print(f"tag_volume({fleet_member}, {volume_names}, {tag_value}")                           
+        tag_volume(fleet_member, volume_names, tag_value)                           
 
 USER_NAME=""
 TAG_API_TOKEN=""
@@ -228,12 +218,15 @@ if __name__ == "__main__":
     role = check_purity_role(client, USER_NAME)
     if not role == "array_admin":
         exit(2)
-    if not check_api_version(client, 2.38):
+    if not check_api_version(client, 2.39):
         exit(3)
     if not TAGGING_RULES or not TAGGING_RULES.get("default"):
         print(f"No tagging rules found")
         exit(4)
 
     # Get the arrays for reporting contexts for the nominated fleet
-    for member in list_fleets(client):
-        process_volumes(member)
+    fleets = list_fleets(client)
+    fleet_members = list_members(client,fleets)
+    
+    for fleet_member in fleet_members:
+        process_volumes(fleet_member)

@@ -29,14 +29,16 @@
 import os
 import pandas as pd
 import urllib3
+import pprint as pp
 from datetime import datetime
 from openpyxl import load_workbook
 from staas_common import (
     parse_arguments,
     initialise_client,
-#   check_purity_role,
+    check_purity_role,
     check_api_version,
-    list_fleets
+    list_fleets,
+    list_members
 )
 
 
@@ -54,20 +56,50 @@ ARRAY_HEADER_ROWS = [
 # Disable certificate warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-def report_volumes(client, fleet_member_name, namespace, tag_key):
+def get_volume_space(client, fleet_member_name, volumes):
+    space_values = {}
+    response = client.get_volumes_space(context_names=fleet_member_name, names=volumes)
+    if response.status_code == 200:
+        if debug >= 4:
+            print(f"Space values for volumes in array {fleet_member_name}")
+        for volume in response.items:
+            space_values[volume.name] = volume.space.__dict__
+    else:
+        print(f"Failed to retrieve volume space. Status code: {response.status_code}, Error: {response.errors}")
+    return space_values
+
+def read_volume_tags(client, fleet_member, volumes):
+    tags = {}
+    # Get any tags in the correct namespace for this array, and create a map of (array,volumes) to tags
+    response = client.get_volumes_tags(context_names=[fleet_member], resource_names=volumes, namespaces=NAMESPACE)
+    # Check the response
+    if response.status_code == 200:
+        if debug >= 4:
+            print(f"Tags from {fleet_member} in namespace {NAMESPACE}:")
+            pp.pprint(response.items)
+        # Process each tag, which has a context, key, value, namespace, and resource (of a volume)
+        for tag in response.items:
+            if tag.namespace == NAMESPACE and tag.key == TAG_KEY:
+                volume = tag.resource.name
+                tags[volume] = tag.value
+    else:
+        print(f"Failed to get tags from {fleet_member}. Status code: {response.status_code}, Error: {response.errors}")
+    return tags
+
+def report_volumes(client, fleet_member, namespace, tag_key):
     volume_set = []
-    response = client.get_volumes(context_names=fleet_member_name)
+    response = client.get_volumes(context_names=[fleet_member])
     if response.status_code == 200:
         if debug >= 2:
-            print(f"Finding volumes for array {fleet_member_name}")
+            print(f"Finding volumes for array {fleet_member}")
         for volume in response.items:
             if volume.subtype == 'regular':
                 volume_set.append(volume.name)
             else:
                 if debug >= 4:
                     print(f'Non-regular volume {volume.name} found - not reporting it.')
-        tags = read_volume_tags(client, fleet_member_name, volume_set, namespace, tag_key)
-        space_values = get_volume_space(client, fleet_member_name, volume_set)
+        tags = read_volume_tags(client, fleet_member, volume_set)
+        space_values = get_volume_space(client, fleet_member, volume_set)
         volumes_by_tag = {}
         volumes_without_tag = []
         if space_values:
@@ -79,7 +111,7 @@ def report_volumes(client, fleet_member_name, namespace, tag_key):
             space = space_values.get(volume, {})
             volume_info = {
                 'Date/Time': NOW,
-                'Array': fleet_member_name,
+                'Array': fleet_member,
                 'Volume': volume
             }
             for key in VOLUME_HEADER_ROWS[0][3:]:
@@ -98,17 +130,18 @@ def report_volumes(client, fleet_member_name, namespace, tag_key):
 def report_arrays(client, fleet_members):
     fleet_space_report = []
     for fleet_member in fleet_members:
-        response = client.get_arrays_space(context_names=fleet_member.member.name)
+        response = client.get_arrays_space(context_names=[fleet_member])
         if response.status_code == 200:
             if debug >= 2:
-                print(f"Space usage for array {fleet_member.member.name}")
-            if response.items and hasattr(response.items[0], 'space'):
-                space = response.items[0].space.__dict__
-                space['Date/Time'] = NOW
-                space['Array'] = fleet_member.member.name
-                fleet_space_report.append(space)
-            else:
-                print(f"No space information available for array {fleet_member.member.name}")
+                print(f"Space usage for array {fleet_member}")
+            for item in response.items:
+                if hasattr(item, 'space'):
+                    space = item.space.__dict__
+                    space_report = {'Date/Time': NOW, 'Array': fleet_member}
+                    space_report.update(space)
+                    fleet_space_report.append(space_report)
+                else:
+                    print(f"No space information available for array {fleet_member}")
         else:
             print(f"Failed to retrieve space usage. Status code: {response.status_code}, Error: {response.errors}")
     return fleet_space_report
@@ -144,21 +177,22 @@ if __name__ == "__main__":
     client = initialise_client(FUSION_SERVER, USER_NAME, API_TOKEN)
     if not client:
         exit(1)
-    #role = check_purity_role(client, USER_NAME) 
     # Check to see minimum version of 2.39 & array admin privileges for this user
-    #if not (role == "array_admin" or role == "read_only)"):
-    #   exit(1)
-    if not check_api_version(client, 2.39, debug):
+    role = check_purity_role(client, USER_NAME) 
+    if not (role == "array_admin" or role == "read_only)"):
+       exit(1)
+    if not check_api_version(client, 2.39):
         exit(2)
 
     # Get the arrays for reporting contexts for the nominated fleet
     all_volumes_by_tag = {}
     all_volumes_without_tag = []
 
-    fleet_members = list_fleets(client)
+    fleets = list_fleets(client)
+    fleet_members = list_members(client,fleets)
 
     for fleet_member in fleet_members:
-        volumes_by_tag, volumes_without_tag = report_volumes(client, fleet_member.member.name, NAMESPACE, TAG_KEY)
+        volumes_by_tag, volumes_without_tag = report_volumes(client, fleet_member, NAMESPACE, TAG_KEY)
         for tag, volumes in volumes_by_tag.items():
             if tag not in all_volumes_by_tag:
                 all_volumes_by_tag[tag] = []
@@ -170,7 +204,8 @@ if __name__ == "__main__":
 
     # Update ARRAY_HEADER_ROWS dynamically
     if fleet_space_report and len(ARRAY_HEADER_ROWS) == 1:
-        ARRAY_HEADER_ROWS[0].extend(fleet_space_report[0].keys())
+        additional_headers = [key for key in fleet_space_report[0].keys() if key not in ARRAY_HEADER_ROWS[0]]
+        ARRAY_HEADER_ROWS[0].extend(additional_headers)
 
     # Create or append to the reporting spreadsheet
     report_path = os.path.join(args.report)

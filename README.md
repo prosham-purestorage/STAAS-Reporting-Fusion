@@ -5,19 +5,14 @@ This package will add chargeback metadata to block volumes on a fleet of Pure St
 
 ## Dependancies and Installation
 
-It depends on some external packages:
-
-    pip install pandas
-    pip install openpyxl
-    pip install py-pure-client
-
 The minimum Purity//FA Rest API version is 2.39, so that the Fusion API is available (Purity//FA 6.8.2 and above)
-The minimum py-pure-client Python SDK is 1.60, that includes Python support for the required API calls - see <https://github.com/PureStorage-OpenConnect/py-pure-client>
+The minimum py-pure-client Python SDK is 1.61.0, that includes Python support for the required API calls - see <https://github.com/PureStorage-OpenConnect/py-pure-client>
 
 ## Runtime 
 
 ### Tagging and Reporting Processes
-The Username and API Token to run the script must be stored in environment variables
+The Username and API Token to run the script must be stored in environment variables for the user
+running the script
     PURE_USER_NAME
     PURE_API_TOKEN
 

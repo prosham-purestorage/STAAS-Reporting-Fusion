@@ -190,7 +190,6 @@ if __name__ == "__main__":
             try:
                 book = load_workbook(report_path)
                 with pd.ExcelWriter(report_path, engine='openpyxl', mode='a', if_sheet_exists='overlay') as writer:
-                    writer.book = book
                     for tag, volumes in all_volumes_by_tag.items():
                         df = pd.DataFrame(volumes)
                         sheet_name = f"Chargeback {tag}"

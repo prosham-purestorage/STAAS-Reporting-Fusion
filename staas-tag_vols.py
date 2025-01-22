@@ -171,6 +171,46 @@ def process_volumes(fleet_member):
                 print(f"tag_volume({fleet_member}, {volume_names}, {tag_value}")                           
         tag_volume(fleet_member, volume_names, tag_value)                           
 
+def tag_volumes_by_host_group(fleet_member, host_group, tag_value):
+    tags = [
+        {"namespace": NAMESPACE, "key": TAG_KEY, "value": tag_value}
+    ]
+    # Get volumes associated with the host group
+    response = client.get_host_groups_volumes(host_group_names=[host_group])
+    if response.status_code == 200:
+        volumes = response.items
+        volume_names = [volume.name for volume in volumes]
+        # Add the chargeback tag
+        response = client.put_volumes_tags_batch(context_names=[fleet_member], resource_names=volume_names, tag=tags)
+        # Check the response
+        if response.status_code == 200:
+            if debug >= 4:
+                print(f"Tags added successfully to volumes in host group {host_group} on {fleet_member}.")
+        else:
+            print(f"Failed to add tags to volumes in host group {host_group} on {fleet_member}. Status code: {response.status_code}, Error: {response.errors}")
+    else:
+        print(f"Failed to retrieve volumes for host group {host_group}. Status code: {response.status_code}, Error: {response.errors}")
+
+def tag_volumes_by_host(fleet_member, host, tag_value):
+    tags = [
+        {"namespace": NAMESPACE, "key": TAG_KEY, "value": tag_value}
+    ]
+    # Get volumes associated with the host
+    response = client.get_hosts_volumes(host_names=[host])
+    if response.status_code == 200:
+        volumes = response.items
+        volume_names = [volume.name for volume in volumes]
+        # Add the chargeback tag
+        response = client.put_volumes_tags_batch(context_names=[fleet_member], resource_names=volume_names, tag=tags)
+        # Check the response
+        if response.status_code == 200:
+            if debug >= 4:
+                print(f"Tags added successfully to volumes in host {host} on {fleet_member}.")
+        else:
+            print(f"Failed to add tags to volumes in host {host} on {fleet_member}. Status code: {response.status_code}, Error: {response.errors}")
+    else:
+        print(f"Failed to retrieve volumes for host {host}. Status code: {response.status_code}, Error: {response.errors}")
+
 USER_NAME=""
 TAG_API_TOKEN=""
 FUSION_SERVER=""

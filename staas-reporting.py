@@ -58,32 +58,43 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 def get_volume_space(client, fleet_member_name, volumes):
     space_values = {}
-    response = client.get_volumes_space(context_names=fleet_member_name, names=volumes)
-    if response.status_code == 200:
-        if debug >= 4:
-            print(f"Space values for volumes in array {fleet_member_name}")
-        for volume in response.items:
-            space_values[volume.name] = volume.space.__dict__
-    else:
-        print(f"Failed to retrieve volume space. Status code: {response.status_code}, Error: {response.errors}")
+    chunk_size = 500
+
+    for i in range(0, len(volumes), chunk_size):
+        volume_chunk = volumes[i:i + chunk_size]
+        response = client.get_volumes_space(context_names=fleet_member_name, names=volume_chunk)
+        if response.status_code == 200:
+            if debug >= 4:
+                print(f"Space values for volumes in array {fleet_member_name}")
+            for volume in response.items:
+                space_values[volume.name] = volume.space.__dict__
+        else:
+            print(f"Failed to retrieve volume space. Status code: {response.status_code}, Error: {response.errors}")
+            break
+
     return space_values
 
 def read_volume_tags(client, fleet_member, volumes):
     tags = {}
-    # Get any tags in the correct namespace for this array, and create a map of (array,volumes) to tags
-    response = client.get_volumes_tags(context_names=[fleet_member], resource_names=volumes, namespaces=NAMESPACE)
-    # Check the response
-    if response.status_code == 200:
-        if debug >= 4:
-            print(f"Tags from {fleet_member} in namespace {NAMESPACE}:")
-            pp.pprint(response.items)
-        # Process each tag, which has a context, key, value, namespace, and resource (of a volume)
-        for tag in response.items:
-            if tag.namespace == NAMESPACE and tag.key == TAG_KEY:
-                volume = tag.resource.name
-                tags[volume] = tag.value
-    else:
-        print(f"Failed to get tags from {fleet_member}. Status code: {response.status_code}, Error: {response.errors}")
+    chunk_size = 500
+
+    for i in range(0, len(volumes), chunk_size):
+        volume_chunk = volumes[i:i + chunk_size]
+        response = client.get_volumes_tags(context_names=[fleet_member], resource_names=volume_chunk, namespaces=NAMESPACE)
+        # Check the response
+        if response.status_code == 200:
+            if debug >= 4:
+                print(f"Tags from {fleet_member} in namespace {NAMESPACE}:")
+                pp.pprint(response.items)
+            # Process each tag, which has a context, key, value, namespace, and resource (of a volume)
+            for tag in response.items:
+                if tag.namespace == NAMESPACE and tag.key == TAG_KEY:
+                    volume = tag.resource.name
+                    tags[volume] = tag.value
+        else:
+            print(f"Failed to get tags from {fleet_member}. Status code: {response.status_code}, Error: {response.errors}")
+            break
+
     return tags
 
 def report_volumes(client, fleet_member, namespace, tag_key):
@@ -129,7 +140,9 @@ def report_volumes(client, fleet_member, namespace, tag_key):
 
 def report_arrays(client, fleet_members):
     fleet_space_report = []
+    #filesystem_space_report = []
     for fleet_member in fleet_members:
+        # Report array space usage
         response = client.get_arrays_space(context_names=[fleet_member])
         if response.status_code == 200:
             if debug >= 2:
@@ -144,6 +157,24 @@ def report_arrays(client, fleet_members):
                     print(f"No space information available for array {fleet_member}")
         else:
             print(f"Failed to retrieve space usage. Status code: {response.status_code}, Error: {response.errors}")
+
+        # Report filesystem space usage
+        #response = client.get_directories_space(context_names=[fleet_member])
+        #if response.status_code == 200:
+        #    if debug >= 2:
+        #        print(f"Space usage for filesystems in array {fleet_member}")
+        #    for item in response.items:
+        #        if hasattr(item, 'space'):
+        #            space = item.space.__dict__
+        #            space_report = {'Date/Time': NOW, 'Array': fleet_member, 'Filesystem': item.name}
+        #            space_report.update(space)
+        #            filesystem_space_report.append(space_report)
+        #        else:
+        #            print(f"No space information available for filesystems in array {fleet_member}")
+        #else:
+        #    print(f"Failed to retrieve filesystem space usage. Status code: {response.status_code}, Error: {response.errors}")
+
+    #return fleet_space_report, filesystem_space_report
     return fleet_space_report
 
 # Main script
@@ -174,6 +205,8 @@ if __name__ == "__main__":
 
     NOW = datetime.now().strftime("%Y-%m-%d %H:%M")
 
+    print(f"Connecting to Fusion server: {FUSION_SERVER} with user: {USER_NAME}")
+
     client = initialise_client(FUSION_SERVER, USER_NAME, API_TOKEN)
     if not client:
         exit(1)
@@ -199,13 +232,30 @@ if __name__ == "__main__":
             all_volumes_by_tag[tag].extend(volumes)
         all_volumes_without_tag.extend(volumes_without_tag)
 
-    # Collect space data for the arrays
+    # Collect space data for the arrays and filesystems
     fleet_space_report = report_arrays(client, fleet_members)
 
     # Update ARRAY_HEADER_ROWS dynamically
-    if fleet_space_report and len(ARRAY_HEADER_ROWS) == 1:
-        additional_headers = [key for key in fleet_space_report[0].keys() if key not in ARRAY_HEADER_ROWS[0]]
-        ARRAY_HEADER_ROWS[0].extend(additional_headers)
+    if fleet_space_report:
+        if len(ARRAY_HEADER_ROWS) == 1:
+            additional_headers = [key for key in fleet_space_report[0].keys() if key not in ARRAY_HEADER_ROWS[0]]
+            ARRAY_HEADER_ROWS[0].extend(additional_headers)
+
+    # Update FILESYSTEM_HEADER_ROWS dynamically
+    #FILESYSTEM_HEADER_ROWS = [['Date/Time', 'Array', 'Filesystem']]
+    #if filesystem_space_report:
+    #    if len(FILESYSTEM_HEADER_ROWS) == 1:
+    #        additional_headers = [key for key in filesystem_space_report[0].keys() if key not in FILESYSTEM_HEADER_ROWS[0]]
+    #        FILESYSTEM_HEADER_ROWS[0].extend(additional_headers)
+
+    # Debug: Print headers and first few rows of fleet space report
+    if debug >= 1:
+        print("Fleet Space Report Headers:", ARRAY_HEADER_ROWS[0])
+        for row in fleet_space_report[:5]:
+            print(row)
+    #    print("Filesystem Space Report Headers:", FILESYSTEM_HEADER_ROWS[0])
+    #    for row in filesystem_space_report[:5]:
+    #        print(row)
 
     # Create or append to the reporting spreadsheet
     report_path = os.path.join(args.report)
@@ -237,6 +287,14 @@ if __name__ == "__main__":
                             df.to_excel(writer, sheet_name='Fleet Space Report', index=False, header=False, startrow=startrow)
                         else:
                             df.to_excel(writer, sheet_name='Fleet Space Report', index=False, header=ARRAY_HEADER_ROWS[0])
+                    # Write the filesystem space report
+                    #if filesystem_space_report:
+                    #    df = pd.DataFrame(filesystem_space_report)
+                    #    if 'Filesystem Space Report' in book.sheetnames:
+                    #        startrow = book['Filesystem Space Report'].max_row
+                    #        df.to_excel(writer, sheet_name='Filesystem Space Report', index=False, header=False, startrow=startrow)
+                    #    else:
+                    #        df.to_excel(writer, sheet_name='Filesystem Space Report', index=False, header=FILESYSTEM_HEADER_ROWS[0])
             except KeyError as e:
                 print(f"KeyError: {e}. The file might be corrupted. Creating a new file.")
                 with pd.ExcelWriter(report_path, engine='openpyxl') as writer:
@@ -244,12 +302,16 @@ if __name__ == "__main__":
                         df = pd.DataFrame(volumes)
                         df.to_excel(writer, sheet_name=f"Chargeback {tag}", index=False, header=VOLUME_HEADER_ROWS[0])
                     if all_volumes_without_tag:
-                        df = pd.DataFrame(all_volumes_without_tag)
+                        df = pd.DataFrame(volumes_without_tag)
                         df.to_excel(writer, sheet_name='No Tag', index=False, header=VOLUME_HEADER_ROWS[0])
                     # Write the fleet space report
                     if fleet_space_report:
                         df = pd.DataFrame(fleet_space_report)
                         df.to_excel(writer, sheet_name='Fleet Space Report', index=False, header=ARRAY_HEADER_ROWS[0])
+                    # Write the filesystem space report
+                    #if filesystem_space_report:
+                    #    df = pd.DataFrame(filesystem_space_report)
+                    #    df.to_excel(writer, sheet_name='Filesystem Space Report', index=False, header=FILESYSTEM_HEADER_ROWS[0])
         else:
             with pd.ExcelWriter(report_path, engine='openpyxl') as writer:
                 for tag, volumes in all_volumes_by_tag.items():
@@ -262,5 +324,9 @@ if __name__ == "__main__":
                 if fleet_space_report:
                     df = pd.DataFrame(fleet_space_report)
                     df.to_excel(writer, sheet_name='Fleet Space Report', index=False, header=ARRAY_HEADER_ROWS[0])
+                # Write the filesystem space report
+                #if filesystem_space_report:
+                #    df = pd.DataFrame(filesystem_space_report)
+                #    df.to_excel(writer, sheet_name='Filesystem Space Report', index=False, header=FILESYSTEM_HEADER_ROWS[0])
     except PermissionError as e:
         print(f"PermissionError: {e}. Please ensure the file is not open in another application.")

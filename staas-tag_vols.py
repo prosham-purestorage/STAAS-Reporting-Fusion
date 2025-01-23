@@ -44,7 +44,24 @@ from staas_common import (
     list_members
 )
 
-debug=2
+debug=5
+
+# Find out if the volume is attached to a host or hostgroup that we want to tag
+def match_client(volume, client):
+    try:
+        response = client.get_volume_connections(names=[volume.name])
+        if response.status_code == 200:
+            connections = response.items
+            for connection in connections:
+                if connection.host:
+                    return {'host': connection.host.name, 'hostgroup': None}
+                elif connection.hostgroup:
+                    return {'host': None, 'hostgroup': connection.hostgroup.name}
+        else:
+            print(f"Failed to retrieve volume connections. Status code: {response.status_code}, Error: {response.errors}")
+    except PureError as e:
+        print(f"Failed to check volume connections: {e}")
+    return None
 
 # If the volume is in a realm or pod, grab those names
 def match_volume_name(volume_name):
@@ -84,22 +101,26 @@ def get_tag_value(tag_by, container_name):
         return TAGGING_RULES[tag_by][container_name]
     return None
 
-def tag_volume(fleet_member,volume_list,value):
+def tag_volume(fleet_member, volume_list, value):
     tags = [
         {"namespace": NAMESPACE, "key": TAG_KEY, "value": value}
     ]
-    # Add the chargeback tag
-    response = client.put_volumes_tags_batch(context_names=[fleet_member], resource_names=volume_list, tag=tags)
-    # Check the response
-    if response.status_code == 200:
-        if debug >=4:
-            print(f"Tags added successfully to volume {fleet_member},{volume_list},{tags}.")
-    else:
-        print(f"Failed to add tags to {fleet_member},{volume_list},{tags}. Status code: {response.status_code}, Error: {response.errors}")
-    
+    chunk_size = 100  # Adjust the chunk size as needed
+
+    for i in range(0, len(volume_list), chunk_size):
+        volume_chunk = volume_list[i:i + chunk_size]
+        # Add the chargeback tag
+        response = client.put_volumes_tags_batch(context_names=[fleet_member], resource_names=volume_chunk, tag=tags)
+        # Check the response
+        if response.status_code == 200:
+            if debug >= 4:
+                print(f"Tags added successfully to volume {fleet_member},{volume_chunk},{tags}.")
+        else:
+            print(f"Failed to add tags to {fleet_member},{volume_chunk},{tags}. Status code: {response.status_code}, Error: {response.errors}")
+            break
 
 # Go through all volumes on this host and create an array of tags with volume names according to the tagging plan
-def process_volumes(fleet_member):
+def process_volumes(client,fleet_member):
     tag_set={}
     response = client.get_volumes(context_names=fleet_member)
     if response.status_code == 200:
@@ -120,6 +141,27 @@ def process_volumes(fleet_member):
         
         realm = result.get("realm")
         pod = result.get("pod")
+
+        # Check if the volume is connected to a host or hostgroup
+        #result = match_client(volume, client)
+        #if result:
+        #    host = result.get("host")
+        #    hostgroup = result.get("hostgroup")
+        #    tag_value = get_tag_value("client", host if host else hostgroup)
+        #    if tag_value:
+        #        if debug >= 5:
+        #            print(f'Tag value for client {host if host else hostgroup}: {tag_value}')
+        #    else:
+        #        if debug >= 5:
+        #            print(f'No tagging rule found for client {host if host else hostgroup}')
+        #        tag_value = get_tag_value("default", "default")
+        #    if tag_value not in tag_set:
+        #        tag_set[tag_value]={}
+        #    if host if host else hostgroup not in tag_set[tag_value]:
+        #        tag_set[tag_value][host if host else hostgroup]=[]
+        #    tag_set[tag_value][host if host else hostgroup].append(volume.name)
+
+
         if realm:
             tag_value = get_tag_value("realm", realm)
             if tag_value:
@@ -170,46 +212,6 @@ def process_volumes(fleet_member):
             if debug >= 2:
                 print(f"tag_volume({fleet_member}, {volume_names}, {tag_value}")                           
         tag_volume(fleet_member, volume_names, tag_value)                           
-
-def tag_volumes_by_host_group(fleet_member, host_group, tag_value):
-    tags = [
-        {"namespace": NAMESPACE, "key": TAG_KEY, "value": tag_value}
-    ]
-    # Get volumes associated with the host group
-    response = client.get_host_groups_volumes(host_group_names=[host_group])
-    if response.status_code == 200:
-        volumes = response.items
-        volume_names = [volume.name for volume in volumes]
-        # Add the chargeback tag
-        response = client.put_volumes_tags_batch(context_names=[fleet_member], resource_names=volume_names, tag=tags)
-        # Check the response
-        if response.status_code == 200:
-            if debug >= 4:
-                print(f"Tags added successfully to volumes in host group {host_group} on {fleet_member}.")
-        else:
-            print(f"Failed to add tags to volumes in host group {host_group} on {fleet_member}. Status code: {response.status_code}, Error: {response.errors}")
-    else:
-        print(f"Failed to retrieve volumes for host group {host_group}. Status code: {response.status_code}, Error: {response.errors}")
-
-def tag_volumes_by_host(fleet_member, host, tag_value):
-    tags = [
-        {"namespace": NAMESPACE, "key": TAG_KEY, "value": tag_value}
-    ]
-    # Get volumes associated with the host
-    response = client.get_hosts_volumes(host_names=[host])
-    if response.status_code == 200:
-        volumes = response.items
-        volume_names = [volume.name for volume in volumes]
-        # Add the chargeback tag
-        response = client.put_volumes_tags_batch(context_names=[fleet_member], resource_names=volume_names, tag=tags)
-        # Check the response
-        if response.status_code == 200:
-            if debug >= 4:
-                print(f"Tags added successfully to volumes in host {host} on {fleet_member}.")
-        else:
-            print(f"Failed to add tags to volumes in host {host} on {fleet_member}. Status code: {response.status_code}, Error: {response.errors}")
-    else:
-        print(f"Failed to retrieve volumes for host {host}. Status code: {response.status_code}, Error: {response.errors}")
 
 USER_NAME=""
 TAG_API_TOKEN=""
@@ -269,4 +271,4 @@ if __name__ == "__main__":
     fleet_members = list_members(client,fleets)
     
     for fleet_member in fleet_members:
-        process_volumes(fleet_member)
+        process_volumes(client,fleet_member)

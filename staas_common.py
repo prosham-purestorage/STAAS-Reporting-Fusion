@@ -7,14 +7,14 @@ import pprint as pp
 from pypureclient import flasharray
 from pypureclient.flasharray import Client, PureError
 
-debug=2
+debug=0
 
 def parse_arguments(options):
     import argparse
     parser = argparse.ArgumentParser(description='STAAS Reporting Scripts')
-    parser.add_argument('--config', type=str, required=True, help='Path to the configuration file')
+    parser.add_argument('--config', type=str, required=True, help='Complete path to filename of the configuration file')
     if options == "report":
-        parser.add_argument('--report', type=str, required=True, help='Path to the reporting file')
+        parser.add_argument('--reportdir', type=str, required=True, help='Directory for the reporting files')
     try:
         return parser.parse_args()
     except SystemExit as e:

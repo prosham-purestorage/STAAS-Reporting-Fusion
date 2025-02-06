@@ -44,7 +44,7 @@ from staas_common import (
     list_members
 )
 
-debug=5
+debug=0
 
 # Find out if the volume is attached to a host or hostgroup that we want to tag
 def match_client(volume, client):

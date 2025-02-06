@@ -53,6 +53,10 @@ ARRAY_HEADER_ROWS = [
     ['Date/Time', 'Array']  # Initial headers, will be updated dynamically
 ]
 
+REALM_HEADER_ROWS = [
+    ['Date/Time', 'Array', 'Realm']
+]
+
 # Disable certificate warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
@@ -138,9 +142,9 @@ def report_volumes(client, fleet_member, namespace, tag_key):
         print(f"Failed to retrieve volumes. Status code: {response.status_code}, Error: {response.errors}")
         return {}, []
 
-def report_arrays(client, fleet_members):
+def report_arrays(client, fleet, fleet_members):
     fleet_space_report = []
-    #filesystem_space_report = []
+    realm_space_report = []
     for fleet_member in fleet_members:
         # Report array space usage
         response = client.get_arrays_space(context_names=[fleet_member])
@@ -158,24 +162,95 @@ def report_arrays(client, fleet_members):
         else:
             print(f"Failed to retrieve space usage. Status code: {response.status_code}, Error: {response.errors}")
 
-        # Report filesystem space usage
-        #response = client.get_directories_space(context_names=[fleet_member])
-        #if response.status_code == 200:
-        #    if debug >= 2:
-        #        print(f"Space usage for filesystems in array {fleet_member}")
-        #    for item in response.items:
-        #        if hasattr(item, 'space'):
-        #            space = item.space.__dict__
-        #            space_report = {'Date/Time': NOW, 'Array': fleet_member, 'Filesystem': item.name}
-        #            space_report.update(space)
-        #            filesystem_space_report.append(space_report)
-        #        else:
-        #            print(f"No space information available for filesystems in array {fleet_member}")
-        #else:
-        #    print(f"Failed to retrieve filesystem space usage. Status code: {response.status_code}, Error: {response.errors}")
+        # Check if the connection type is local before reporting realm space usage
+        connection_type_response = client.get_fleets_members()
+        if connection_type_response.status_code == 200:
+            for member in connection_type_response.items:
+                if member.member.name == fleet_member and member.member.is_local == 'true':
+                    # Report realm space usage
+                    response = client.get_realms_space(context_names=[fleet_member])
+                    if response.status_code == 200:
+                        if debug >= 2:
+                            print(f"Space usage for realms in array {fleet_member}")
+                        for item in response.items:
+                            if hasattr(item, 'space'):
+                                space = item.space.__dict__
+                                space_report = {'Date/Time': NOW, 'Array': fleet_member, 'Realm': item.name}
+                                space_report.update(space)
+                                realm_space_report.append(space_report)
+                            else:
+                                print(f"No space information available for realms in array {fleet_member}")
+                    else:
+                        print(f"Failed to retrieve realm space usage. Status code: {response.status_code}, Error: {response.errors}")
+        else:
+            print(f"Failed to retrieve connection type. Status code: {connection_type_response.status_code}, Error: {connection_type_response.errors}")
 
-    #return fleet_space_report, filesystem_space_report
-    return fleet_space_report
+    return fleet_space_report, realm_space_report
+
+def save_volume_reports(report_path, all_volumes_by_tag, all_volumes_without_tag):
+    try:
+        if os.path.exists(report_path):
+            try:
+                book = load_workbook(report_path)
+                with pd.ExcelWriter(report_path, engine='openpyxl', mode='a', if_sheet_exists='overlay') as writer:
+                    for tag, volumes in all_volumes_by_tag.items():
+                        df = pd.DataFrame(volumes)
+                        sheet_name = f"Chargeback {tag}"
+                        if sheet_name in book.sheetnames:
+                            startrow = book[sheet_name].max_row
+                            df.to_excel(writer, sheet_name=sheet_name, index=False, header=False, startrow=startrow)
+                        else:
+                            df.to_excel(writer, sheet_name=sheet_name, index=False, header=VOLUME_HEADER_ROWS[0])
+                    if all_volumes_without_tag:
+                        df = pd.DataFrame(all_volumes_without_tag)
+                        if 'No Tag' in book.sheetnames:
+                            startrow = book['No Tag'].max_row
+                            df.to_excel(writer, sheet_name='No Tag', index=False, header=False, startrow=startrow)
+                        else:
+                            df.to_excel(writer, sheet_name='No Tag', index=False, header=VOLUME_HEADER_ROWS[0])
+            except KeyError as e:
+                print(f"KeyError: {e}. The file might be corrupted. Creating a new file.")
+                with pd.ExcelWriter(report_path, engine='openpyxl') as writer:
+                    for tag, volumes in all_volumes_by_tag.items():
+                        df = pd.DataFrame(volumes)
+                        df.to_excel(writer, sheet_name=f"Chargeback {tag}", index=False, header=VOLUME_HEADER_ROWS[0])
+                    if all_volumes_without_tag:
+                        df = pd.DataFrame(volumes_without_tag)
+                        df.to_excel(writer, sheet_name='No Tag', index=False, header=VOLUME_HEADER_ROWS[0])
+        else:
+            with pd.ExcelWriter(report_path, engine='openpyxl') as writer:
+                for tag, volumes in all_volumes_by_tag.items():
+                    df = pd.DataFrame(volumes)
+                    df.to_excel(writer, sheet_name=f"Chargeback {tag}", index=False, header=VOLUME_HEADER_ROWS[0])
+                if all_volumes_without_tag:
+                    df = pd.DataFrame(all_volumes_without_tag)
+                    df.to_excel(writer, sheet_name='No Tag', index=False, header=VOLUME_HEADER_ROWS[0])
+    except PermissionError as e:
+        print(f"PermissionError: {e}. Please ensure the file is not open in another application.")
+
+def save_report_to_excel(report_data, headers, report_path, sheet_name):
+    try:
+        if os.path.exists(report_path):
+            try:
+                book = load_workbook(report_path)
+                with pd.ExcelWriter(report_path, engine='openpyxl', mode='a', if_sheet_exists='overlay') as writer:
+                    df = pd.DataFrame(report_data)
+                    if sheet_name in book.sheetnames:
+                        startrow = book[sheet_name].max_row
+                        df.to_excel(writer, sheet_name=sheet_name, index=False, header=False, startrow=startrow)
+                    else:
+                        df.to_excel(writer, sheet_name=sheet_name, index=False, header=headers)
+            except KeyError as e:
+                print(f"KeyError: {e}. The file might be corrupted. Creating a new file.")
+                with pd.ExcelWriter(report_path, engine='openpyxl') as writer:
+                    df = pd.DataFrame(report_data)
+                    df.to_excel(writer, sheet_name=sheet_name, index=False, header=headers)
+        else:
+            with pd.ExcelWriter(report_path, engine='openpyxl') as writer:
+                df = pd.DataFrame(report_data)
+                df.to_excel(writer, sheet_name=sheet_name, index=False, header=headers)
+    except PermissionError as e:
+        print(f"PermissionError: {e}. Please ensure the file is not open in another application.")
 
 # Main script
 if __name__ == "__main__":
@@ -203,6 +278,7 @@ if __name__ == "__main__":
     NAMESPACE = global_variables.get('NAMESPACE', '')
     TAG_KEY = "chargeback"
 
+    MNTH = datetime.now().strftime("%Y-%m")
     NOW = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     print(f"Connecting to Fusion server: {FUSION_SERVER} with user: {USER_NAME}")
@@ -222,111 +298,58 @@ if __name__ == "__main__":
     all_volumes_without_tag = []
 
     fleets = list_fleets(client)
-    fleet_members = list_members(client,fleets)
+    for fleet in fleets:
+        fleet_members = list_members(client, [fleet])
 
-    for fleet_member in fleet_members:
-        volumes_by_tag, volumes_without_tag = report_volumes(client, fleet_member, NAMESPACE, TAG_KEY)
-        for tag, volumes in volumes_by_tag.items():
-            if tag not in all_volumes_by_tag:
-                all_volumes_by_tag[tag] = []
-            all_volumes_by_tag[tag].extend(volumes)
-        all_volumes_without_tag.extend(volumes_without_tag)
+        for fleet_member in fleet_members:
+            volumes_by_tag, volumes_without_tag = report_volumes(client, fleet_member, NAMESPACE, TAG_KEY)
+            for tag, volumes in volumes_by_tag.items():
+                if tag not in all_volumes_by_tag:
+                    all_volumes_by_tag[tag] = []
+                all_volumes_by_tag[tag].extend(volumes)
+            all_volumes_without_tag.extend(volumes_without_tag)
 
-    # Collect space data for the arrays and filesystems
-    fleet_space_report = report_arrays(client, fleet_members)
+        # Collect space data for the arrays and realms
+        fleet_space_report, realm_space_report = report_arrays(client, fleet, fleet_members)
 
-    # Update ARRAY_HEADER_ROWS dynamically
-    if fleet_space_report:
-        if len(ARRAY_HEADER_ROWS) == 1:
-            additional_headers = [key for key in fleet_space_report[0].keys() if key not in ARRAY_HEADER_ROWS[0]]
-            ARRAY_HEADER_ROWS[0].extend(additional_headers)
+        # Update ARRAY_HEADER_ROWS dynamically
+        if fleet_space_report:
+            if len(ARRAY_HEADER_ROWS) == 1:
+                additional_headers = [key for key in fleet_space_report[0].keys() if key not in ARRAY_HEADER_ROWS[0]]
+                ARRAY_HEADER_ROWS[0].extend(additional_headers)
 
-    # Update FILESYSTEM_HEADER_ROWS dynamically
-    #FILESYSTEM_HEADER_ROWS = [['Date/Time', 'Array', 'Filesystem']]
-    #if filesystem_space_report:
-    #    if len(FILESYSTEM_HEADER_ROWS) == 1:
-    #        additional_headers = [key for key in filesystem_space_report[0].keys() if key not in FILESYSTEM_HEADER_ROWS[0]]
-    #        FILESYSTEM_HEADER_ROWS[0].extend(additional_headers)
+        # Update REALM_HEADER_ROWS dynamically
+        if realm_space_report:
+            if len(REALM_HEADER_ROWS) == 1:
+                additional_headers = [key for key in realm_space_report[0].keys() if key not in REALM_HEADER_ROWS[0]]
+                REALM_HEADER_ROWS[0].extend(additional_headers)
 
-    # Debug: Print headers and first few rows of fleet space report
-    if debug >= 1:
-        print("Fleet Space Report Headers:", ARRAY_HEADER_ROWS[0])
-        for row in fleet_space_report[:5]:
-            print(row)
-    #    print("Filesystem Space Report Headers:", FILESYSTEM_HEADER_ROWS[0])
-    #    for row in filesystem_space_report[:5]:
-    #        print(row)
+        # Debug: Print headers and first few rows of fleet space report
+        if debug >= 3:
+            print("Fleet Space Report Headers:", ARRAY_HEADER_ROWS[0])
+            for row in fleet_space_report[:5]:
+                print(row)
 
     # Create or append to the reporting spreadsheet
-    report_path = os.path.join(args.report)
+    vol_report_path = os.path.join(args.reportdir,"STAAS-Volumes-"+MNTH+".xlsx")
+    fleet_report_path = os.path.join(args.reportdir,"STAAS-Fleet-"+MNTH+".xlsx")
+    realm_report_path = os.path.join(args.reportdir,"STAAS-Realms-"+MNTH+".xlsx")
+
     try:
-        if os.path.exists(report_path):
-            try:
-                book = load_workbook(report_path)
-                with pd.ExcelWriter(report_path, engine='openpyxl', mode='a', if_sheet_exists='overlay') as writer:
-                    for tag, volumes in all_volumes_by_tag.items():
-                        df = pd.DataFrame(volumes)
-                        sheet_name = f"Chargeback {tag}"
-                        if sheet_name in book.sheetnames:
-                            startrow = book[sheet_name].max_row
-                            df.to_excel(writer, sheet_name=sheet_name, index=False, header=False, startrow=startrow)
-                        else:
-                            df.to_excel(writer, sheet_name=sheet_name, index=False, header=VOLUME_HEADER_ROWS[0])
-                    if all_volumes_without_tag:
-                        df = pd.DataFrame(all_volumes_without_tag)
-                        if 'No Tag' in book.sheetnames:
-                            startrow = book['No Tag'].max_row
-                            df.to_excel(writer, sheet_name='No Tag', index=False, header=False, startrow=startrow)
-                        else:
-                            df.to_excel(writer, sheet_name='No Tag', index=False, header=VOLUME_HEADER_ROWS[0])
-                    # Write the fleet space report
-                    if fleet_space_report:
-                        df = pd.DataFrame(fleet_space_report)
-                        if 'Fleet Space Report' in book.sheetnames:
-                            startrow = book['Fleet Space Report'].max_row
-                            df.to_excel(writer, sheet_name='Fleet Space Report', index=False, header=False, startrow=startrow)
-                        else:
-                            df.to_excel(writer, sheet_name='Fleet Space Report', index=False, header=ARRAY_HEADER_ROWS[0])
-                    # Write the filesystem space report
-                    #if filesystem_space_report:
-                    #    df = pd.DataFrame(filesystem_space_report)
-                    #    if 'Filesystem Space Report' in book.sheetnames:
-                    #        startrow = book['Filesystem Space Report'].max_row
-                    #        df.to_excel(writer, sheet_name='Filesystem Space Report', index=False, header=False, startrow=startrow)
-                    #    else:
-                    #        df.to_excel(writer, sheet_name='Filesystem Space Report', index=False, header=FILESYSTEM_HEADER_ROWS[0])
-            except KeyError as e:
-                print(f"KeyError: {e}. The file might be corrupted. Creating a new file.")
-                with pd.ExcelWriter(report_path, engine='openpyxl') as writer:
-                    for tag, volumes in all_volumes_by_tag.items():
-                        df = pd.DataFrame(volumes)
-                        df.to_excel(writer, sheet_name=f"Chargeback {tag}", index=False, header=VOLUME_HEADER_ROWS[0])
-                    if all_volumes_without_tag:
-                        df = pd.DataFrame(volumes_without_tag)
-                        df.to_excel(writer, sheet_name='No Tag', index=False, header=VOLUME_HEADER_ROWS[0])
-                    # Write the fleet space report
-                    if fleet_space_report:
-                        df = pd.DataFrame(fleet_space_report)
-                        df.to_excel(writer, sheet_name='Fleet Space Report', index=False, header=ARRAY_HEADER_ROWS[0])
-                    # Write the filesystem space report
-                    #if filesystem_space_report:
-                    #    df = pd.DataFrame(filesystem_space_report)
-                    #    df.to_excel(writer, sheet_name='Filesystem Space Report', index=False, header=FILESYSTEM_HEADER_ROWS[0])
-        else:
-            with pd.ExcelWriter(report_path, engine='openpyxl') as writer:
-                for tag, volumes in all_volumes_by_tag.items():
-                    df = pd.DataFrame(volumes)
-                    df.to_excel(writer, sheet_name=f"Chargeback {tag}", index=False, header=VOLUME_HEADER_ROWS[0])
-                if all_volumes_without_tag:
-                    df = pd.DataFrame(all_volumes_without_tag)
-                    df.to_excel(writer, sheet_name='No Tag', index=False, header=VOLUME_HEADER_ROWS[0])
-                # Write the fleet space report
-                if fleet_space_report:
-                    df = pd.DataFrame(fleet_space_report)
-                    df.to_excel(writer, sheet_name='Fleet Space Report', index=False, header=ARRAY_HEADER_ROWS[0])
-                # Write the filesystem space report
-                #if filesystem_space_report:
-                #    df = pd.DataFrame(filesystem_space_report)
-                #    df.to_excel(writer, sheet_name='Filesystem Space Report', index=False, header=FILESYSTEM_HEADER_ROWS[0])
+        # Save volume reports
+        save_volume_reports(vol_report_path, all_volumes_by_tag, all_volumes_without_tag)
+
+        # Save fleet space report
+        if fleet_space_report:
+            save_report_to_excel(fleet_space_report, ARRAY_HEADER_ROWS[0], fleet_report_path, 'Fleet Space Report')
+
+        # Debug: Print realm space report before saving
+        if debug >= 2:
+            print("Realm Space Report:", realm_space_report)
+
+        # Save realm space report
+        if realm_space_report:
+            save_report_to_excel(realm_space_report, REALM_HEADER_ROWS[0], realm_report_path, 'Realm Space Report')
+
     except PermissionError as e:
         print(f"PermissionError: {e}. Please ensure the file is not open in another application.")

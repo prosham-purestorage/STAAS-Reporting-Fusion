@@ -13,7 +13,7 @@
                 "type": "python",
                 "request": "launch",
                 "program": "${workspaceFolder}${pathSeparator}staas-reporting.py",
-                "args": ["--config", "${workspaceFolder}${pathSeparator}STAAS_Config.xlsx", "--report", "${workspaceFolder}${pathSeparator}STAAS-Reports-2025-01.xlsx"],
+                "args": ["--config", "${workspaceFolder}${pathSeparator}STAAS_Config.xlsx", "--reportdir", "${workspaceFolder}${pathSeparator}"],
                 "console": "integratedTerminal"
             },
             {
@@ -21,7 +21,7 @@
                 "type": "python",
                 "request": "launch",
                 "program": "${workspaceFolder}${pathSeparator}staas-tag_vols.py",
-                "args": ["--config", "${workspaceFolder}${pathSeparator}STAAS_Config.xlsx", 
+                "args": ["--config", "${workspaceFolder}${pathSeparator}STAAS_Config.xlsx"], 
                 "console": "integratedTerminal"
             }
         ]

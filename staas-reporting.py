@@ -166,9 +166,9 @@ def report_arrays(client, fleet, fleet_members):
         connection_type_response = client.get_fleets_members()
         if connection_type_response.status_code == 200:
             for member in connection_type_response.items:
-                if member.member.name == fleet_member and member.member.is_local == 'true':
+                if member.member.name == fleet_member: #and member.member.is_local == 'true':
                     # Report realm space usage
-                    response = client.get_realms_space(context_names=[fleet_member])
+                    response = client.get_realms_space()    #context_names=[fleet_member])
                     if response.status_code == 200:
                         if debug >= 2:
                             print(f"Space usage for realms in array {fleet_member}")
@@ -290,7 +290,7 @@ if __name__ == "__main__":
     role = check_purity_role(client, USER_NAME) 
     if not (role == "array_admin" or role == "read_only)"):
        exit(1)
-    if not check_api_version(client, 2.39):
+    if not check_api_version(client, 2.40):
         exit(2)
 
     # Get the arrays for reporting contexts for the nominated fleet

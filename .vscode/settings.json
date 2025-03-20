@@ -6,6 +6,7 @@
     "python.testing.unittestEnabled": true,
     "python.testing.pytestEnabled": true,
     "python.testing.nosetestsEnabled": false,
+    "python.pythonPath": "path/to/your/python/interpreter",
     "launch": {
         "configurations": [
             {
@@ -13,7 +14,7 @@
                 "type": "python",
                 "request": "launch",
                 "program": "${workspaceFolder}${pathSeparator}staas-reporting.py",
-                "args": ["--config", "${workspaceFolder}${pathSeparator}STAAS_Config.xlsx", "--reportdir", "${workspaceFolder}${pathSeparator}"],
+                "args": ["--config", "${workspaceFolder}${pathSeparator}config${pathSeparator}STAAS_Config.xlsx", "--reportdir", "${workspaceFolder}${pathSeparator}reports"],
                 "console": "integratedTerminal"
             },
             {
@@ -21,7 +22,7 @@
                 "type": "python",
                 "request": "launch",
                 "program": "${workspaceFolder}${pathSeparator}staas-tag_vols.py",
-                "args": ["--config", "${workspaceFolder}${pathSeparator}STAAS_Config.xlsx"], 
+                "args": ["--config", "${workspaceFolder}${pathSeparator}config${pathSeparator}STAAS_Config.xlsx"], 
                 "console": "integratedTerminal"
             }
         ]

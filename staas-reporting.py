@@ -113,34 +113,43 @@ def report_volumes(client, fleet_member, namespace, tag_key):
             else:
                 if debug >= 4:
                     print(f'Non-regular volume {volume.name} found - not reporting it.')
+
+        # Retrieve tags and space values for the volumes
         tags = read_volume_tags(client, fleet_member, volume_set)
         space_values = get_volume_space(client, fleet_member, volume_set)
+
+        # Initialize the volumes_by_tag dictionary
         volumes_by_tag = {}
-        volumes_without_tag = []
+
+        # Dynamically update headers if space values exist
         if space_values:
             first_space = next(iter(space_values.values()))
             headers = ['Date/Time', 'Array', 'Volume'] + list(first_space.keys())
             VOLUME_HEADER_ROWS[0] = headers
+
+        # Process each volume
         for volume in volume_set:
-            tag = tags.get(volume, 'No tag')
+            tag = tags.get(volume, 'absent')  # Default to 'absent' if no tag is found
             space = space_values.get(volume, {})
             volume_info = {
                 'Date/Time': NOW,
                 'Array': fleet_member,
                 'Volume': volume
             }
+
+            # Add space attributes dynamically
             for key in VOLUME_HEADER_ROWS[0][3:]:
                 volume_info[key] = space.get(key, '')
-            if tag == 'No tag':
-                volumes_without_tag.append(volume_info)
-            else:
-                if tag not in volumes_by_tag:
-                    volumes_by_tag[tag] = []
-                volumes_by_tag[tag].append(volume_info)
-        return volumes_by_tag, volumes_without_tag
+
+            # Add the volume to the appropriate tag group
+            if tag not in volumes_by_tag:
+                volumes_by_tag[tag] = []
+            volumes_by_tag[tag].append(volume_info)
+
+        return volumes_by_tag
     else:
         print(f"Failed to retrieve volumes. Status code: {response.status_code}, Error: {response.errors}")
-        return {}, []
+        return {}
 
 def report_arrays(client, fleet, fleet_members):
     fleet_space_report = []
@@ -286,7 +295,7 @@ if __name__ == "__main__":
     client = initialise_client(FUSION_SERVER, USER_NAME, API_TOKEN)
     if not client:
         exit(1)
-    # Check to see minimum version of 2.39 & array admin privileges for this user
+    # Check to see minimum version of 2.40 & array admin privileges for this user
     role = check_purity_role(client, USER_NAME) 
     if not (role == "array_admin" or role == "read_only)"):
        exit(1)
@@ -294,20 +303,19 @@ if __name__ == "__main__":
         exit(2)
 
     # Get the arrays for reporting contexts for the nominated fleet
-    all_volumes_by_tag = {}
-    all_volumes_without_tag = []
-
     fleets = list_fleets(client)
+
+    # At some point, there may be multiple fleets visible from a single fusion end-point
     for fleet in fleets:
+        all_volumes_by_tag = []
         fleet_members = list_members(client, [fleet])
 
         for fleet_member in fleet_members:
-            volumes_by_tag, volumes_without_tag = report_volumes(client, fleet_member, NAMESPACE, TAG_KEY)
+            volumes_by_tag = report_volumes(client, fleet_member, NAMESPACE, TAG_KEY)
             for tag, volumes in volumes_by_tag.items():
                 if tag not in all_volumes_by_tag:
                     all_volumes_by_tag[tag] = []
                 all_volumes_by_tag[tag].extend(volumes)
-            all_volumes_without_tag.extend(volumes_without_tag)
 
         # Collect space data for the arrays and realms
         fleet_space_report, realm_space_report = report_arrays(client, fleet, fleet_members)
@@ -331,13 +339,13 @@ if __name__ == "__main__":
                 print(row)
 
     # Create or append to the reporting spreadsheet
-    vol_report_path = os.path.join(args.reportdir,"STAAS-Volumes-"+MNTH+".xlsx")
+    volumes_report_path = os.path.join(args.reportdir,"STAAS-Volumes-"+MNTH+".xlsx")
     fleet_report_path = os.path.join(args.reportdir,"STAAS-Fleet-"+MNTH+".xlsx")
     realm_report_path = os.path.join(args.reportdir,"STAAS-Realms-"+MNTH+".xlsx")
 
     try:
         # Save volume reports
-        save_volume_reports(vol_report_path, all_volumes_by_tag, all_volumes_without_tag)
+        save_report_to_excel(volumes_report_path, all_volumes_by_tag, VOLUME_HEADER_ROWS[0], volumes_report_path, 'Volume Space Report')
 
         # Save fleet space report
         if fleet_space_report:
@@ -352,4 +360,4 @@ if __name__ == "__main__":
             save_report_to_excel(realm_space_report, REALM_HEADER_ROWS[0], realm_report_path, 'Realm Space Report')
 
     except PermissionError as e:
-        print(f"PermissionError: {e}. Please ensure the file is not open in another application.")
+        print(f"PermissionError: {e}. File is open in another application, exiting.")

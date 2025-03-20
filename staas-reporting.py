@@ -42,7 +42,7 @@ from staas_common import (
 )
 
 
-debug = 2
+debug = 0
 
 # Header rows for the reporting spreadsheet are defined here
 VOLUME_HEADER_ROWS = [
@@ -129,7 +129,7 @@ def report_volumes(client, fleet_member, namespace, tag_key):
 
         # Process each volume
         for volume in volume_set:
-            tag = tags.get(volume, 'absent')  # Default to 'absent' if no tag is found
+            tag = tags.get(volume, 'NoChargebackTag')  # Default to 'NoChargebackTag' if no tag is found
             space = space_values.get(volume, {})
             volume_info = {
                 'Date/Time': NOW,
@@ -152,8 +152,9 @@ def report_volumes(client, fleet_member, namespace, tag_key):
         return {}
 
 def report_arrays(client, fleet, fleet_members):
-    fleet_space_report = []
-    realm_space_report = []
+    fleet_space_report = {}
+    realm_space_report = {}
+
     for fleet_member in fleet_members:
         # Report array space usage
         response = client.get_arrays_space(context_names=[fleet_member])
@@ -165,101 +166,82 @@ def report_arrays(client, fleet, fleet_members):
                     space = item.space.__dict__
                     space_report = {'Date/Time': NOW, 'Array': fleet_member}
                     space_report.update(space)
-                    fleet_space_report.append(space_report)
+                    if fleet_member not in fleet_space_report:
+                        fleet_space_report[fleet_member] = []
+                    fleet_space_report[fleet_member].append(space_report)
                 else:
                     print(f"No space information available for array {fleet_member}")
         else:
             print(f"Failed to retrieve space usage. Status code: {response.status_code}, Error: {response.errors}")
 
-        # Check if the connection type is local before reporting realm space usage
-        connection_type_response = client.get_fleets_members()
-        if connection_type_response.status_code == 200:
-            for member in connection_type_response.items:
-                if member.member.name == fleet_member: #and member.member.is_local == 'true':
-                    # Report realm space usage
-                    response = client.get_realms_space()    #context_names=[fleet_member])
-                    if response.status_code == 200:
-                        if debug >= 2:
-                            print(f"Space usage for realms in array {fleet_member}")
-                        for item in response.items:
-                            if hasattr(item, 'space'):
-                                space = item.space.__dict__
-                                space_report = {'Date/Time': NOW, 'Array': fleet_member, 'Realm': item.name}
-                                space_report.update(space)
-                                realm_space_report.append(space_report)
-                            else:
-                                print(f"No space information available for realms in array {fleet_member}")
-                    else:
-                        print(f"Failed to retrieve realm space usage. Status code: {response.status_code}, Error: {response.errors}")
+        # Check API version before reporting realm space usage
+        if check_api_version(client, 2.42):
+            connection_type_response = client.get_fleets_members()
+            if connection_type_response.status_code == 200:
+                for member in connection_type_response.items:
+                    if member.member.name == fleet_member:  # and member.member.is_local == 'true':
+                        # Report realm space usage
+                        response = client.get_realms_space(context_names=[fleet_member])
+                        if response.status_code == 200:
+                            if debug >= 2:
+                                print(f"Space usage for realms in array {fleet_member}")
+                            for item in response.items:
+                                if hasattr(item, 'space'):
+                                    space = item.space.__dict__
+                                    space_report = {'Date/Time': NOW, 'Array': fleet_member, 'Realm': item.name}
+                                    space_report.update(space)
+                                    if item.name not in realm_space_report:
+                                        realm_space_report[item.name] = []
+                                    realm_space_report[item.name].append(space_report)
+                                else:
+                                    print(f"No space information available for realms in array {fleet_member}")
+                        else:
+                            print(f"Failed to retrieve realm space usage. Status code: {response.status_code}, Error: {response.errors}")
+            else:
+                print(f"Failed to retrieve connection type. Status code: {connection_type_response.status_code}, Error: {connection_type_response.errors}")
         else:
-            print(f"Failed to retrieve connection type. Status code: {connection_type_response.status_code}, Error: {connection_type_response.errors}")
+            if debug >=2:
+                print("Skipping realm space report as API version is less than 2.42.")
 
     return fleet_space_report, realm_space_report
 
-def save_volume_reports(report_path, all_volumes_by_tag, all_volumes_without_tag):
+def save_report_to_excel(report_data, headers, report_path, sheet_prefix):
     try:
+        # Check if the file exists
         if os.path.exists(report_path):
             try:
                 book = load_workbook(report_path)
                 with pd.ExcelWriter(report_path, engine='openpyxl', mode='a', if_sheet_exists='overlay') as writer:
-                    for tag, volumes in all_volumes_by_tag.items():
-                        df = pd.DataFrame(volumes)
-                        sheet_name = f"Chargeback {tag}"
+                    for group, data in report_data.items():
+                        if not data:
+                            print(f"Warning: No data for group '{group}'. Skipping.")
+                            continue
+                        df = pd.DataFrame(data)
+                        sheet_name = f"{sheet_prefix} {group}"
                         if sheet_name in book.sheetnames:
                             startrow = book[sheet_name].max_row
                             df.to_excel(writer, sheet_name=sheet_name, index=False, header=False, startrow=startrow)
                         else:
-                            df.to_excel(writer, sheet_name=sheet_name, index=False, header=VOLUME_HEADER_ROWS[0])
-                    if all_volumes_without_tag:
-                        df = pd.DataFrame(all_volumes_without_tag)
-                        if 'No Tag' in book.sheetnames:
-                            startrow = book['No Tag'].max_row
-                            df.to_excel(writer, sheet_name='No Tag', index=False, header=False, startrow=startrow)
-                        else:
-                            df.to_excel(writer, sheet_name='No Tag', index=False, header=VOLUME_HEADER_ROWS[0])
-            except KeyError as e:
-                print(f"KeyError: {e}. The file might be corrupted. Creating a new file.")
+                            df.to_excel(writer, sheet_name=sheet_name, index=False, header=headers)
+            except (KeyError, ValueError) as e:
+                print(f"Error processing workbook: {e}. Creating a new file.")
                 with pd.ExcelWriter(report_path, engine='openpyxl') as writer:
-                    for tag, volumes in all_volumes_by_tag.items():
-                        df = pd.DataFrame(volumes)
-                        df.to_excel(writer, sheet_name=f"Chargeback {tag}", index=False, header=VOLUME_HEADER_ROWS[0])
-                    if all_volumes_without_tag:
-                        df = pd.DataFrame(volumes_without_tag)
-                        df.to_excel(writer, sheet_name='No Tag', index=False, header=VOLUME_HEADER_ROWS[0])
+                    for group, data in report_data.items():
+                        if not data:
+                            continue
+                        df = pd.DataFrame(data)
+                        df.to_excel(writer, sheet_name=f"{sheet_prefix} {group}", index=False, header=headers)
         else:
             with pd.ExcelWriter(report_path, engine='openpyxl') as writer:
-                for tag, volumes in all_volumes_by_tag.items():
-                    df = pd.DataFrame(volumes)
-                    df.to_excel(writer, sheet_name=f"Chargeback {tag}", index=False, header=VOLUME_HEADER_ROWS[0])
-                if all_volumes_without_tag:
-                    df = pd.DataFrame(all_volumes_without_tag)
-                    df.to_excel(writer, sheet_name='No Tag', index=False, header=VOLUME_HEADER_ROWS[0])
+                for group, data in report_data.items():
+                    if not data:
+                        continue
+                    df = pd.DataFrame(data)
+                    df.to_excel(writer, sheet_name=f"{sheet_prefix} {group}", index=False, header=headers)
     except PermissionError as e:
         print(f"PermissionError: {e}. Please ensure the file is not open in another application.")
-
-def save_report_to_excel(report_data, headers, report_path, sheet_name):
-    try:
-        if os.path.exists(report_path):
-            try:
-                book = load_workbook(report_path)
-                with pd.ExcelWriter(report_path, engine='openpyxl', mode='a', if_sheet_exists='overlay') as writer:
-                    df = pd.DataFrame(report_data)
-                    if sheet_name in book.sheetnames:
-                        startrow = book[sheet_name].max_row
-                        df.to_excel(writer, sheet_name=sheet_name, index=False, header=False, startrow=startrow)
-                    else:
-                        df.to_excel(writer, sheet_name=sheet_name, index=False, header=headers)
-            except KeyError as e:
-                print(f"KeyError: {e}. The file might be corrupted. Creating a new file.")
-                with pd.ExcelWriter(report_path, engine='openpyxl') as writer:
-                    df = pd.DataFrame(report_data)
-                    df.to_excel(writer, sheet_name=sheet_name, index=False, header=headers)
-        else:
-            with pd.ExcelWriter(report_path, engine='openpyxl') as writer:
-                df = pd.DataFrame(report_data)
-                df.to_excel(writer, sheet_name=sheet_name, index=False, header=headers)
-    except PermissionError as e:
-        print(f"PermissionError: {e}. Please ensure the file is not open in another application.")
+    except ValueError as e:
+        print(f"ValueError: {e}. Please check the structure of report_data.")
 
 # Main script
 if __name__ == "__main__":
@@ -299,7 +281,7 @@ if __name__ == "__main__":
     role = check_purity_role(client, USER_NAME) 
     if not (role == "array_admin" or role == "read_only)"):
        exit(1)
-    if not check_api_version(client, 2.40):
+    if not check_api_version(client, 2.41):
         exit(2)
 
     # Get the arrays for reporting contexts for the nominated fleet
@@ -307,15 +289,15 @@ if __name__ == "__main__":
 
     # At some point, there may be multiple fleets visible from a single fusion end-point
     for fleet in fleets:
-        all_volumes_by_tag = []
+        volume_space_report = {}
         fleet_members = list_members(client, [fleet])
 
         for fleet_member in fleet_members:
             volumes_by_tag = report_volumes(client, fleet_member, NAMESPACE, TAG_KEY)
             for tag, volumes in volumes_by_tag.items():
-                if tag not in all_volumes_by_tag:
-                    all_volumes_by_tag[tag] = []
-                all_volumes_by_tag[tag].extend(volumes)
+                if tag not in volume_space_report:
+                    volume_space_report[tag] = []
+                volume_space_report[tag].extend(volumes)
 
         # Collect space data for the arrays and realms
         fleet_space_report, realm_space_report = report_arrays(client, fleet, fleet_members)
@@ -323,33 +305,49 @@ if __name__ == "__main__":
         # Update ARRAY_HEADER_ROWS dynamically
         if fleet_space_report:
             if len(ARRAY_HEADER_ROWS) == 1:
-                additional_headers = [key for key in fleet_space_report[0].keys() if key not in ARRAY_HEADER_ROWS[0]]
-                ARRAY_HEADER_ROWS[0].extend(additional_headers)
+                # Iterate over the values of fleet_space_report
+                for reports in fleet_space_report.values():
+                    if reports:  # Ensure the list is not empty
+                        additional_headers = [key for key in reports[0].keys() if key not in ARRAY_HEADER_ROWS[0]]
+                        ARRAY_HEADER_ROWS[0].extend(additional_headers)
+                        break  # Only need to process the first non-empty list
 
-        # Update REALM_HEADER_ROWS dynamically
-        if realm_space_report:
-            if len(REALM_HEADER_ROWS) == 1:
-                additional_headers = [key for key in realm_space_report[0].keys() if key not in REALM_HEADER_ROWS[0]]
-                REALM_HEADER_ROWS[0].extend(additional_headers)
+        # Check API version before reporting realm space usage
+        if check_api_version(client, 2.42):
+            # Update REALM_HEADER_ROWS dynamically
+            if realm_space_report:
+                if len(REALM_HEADER_ROWS) == 1:
+                    # Iterate over the values of realm_space_report
+                    for reports in realm_space_report.values():
+                        if reports:  # Ensure the list is not empty
+                            additional_headers = [key for key in reports[0].keys() if key not in REALM_HEADER_ROWS[0]]
+                            REALM_HEADER_ROWS[0].extend(additional_headers)
+                            break  # Only need to process the first non-empty list
+        else:
+            if debug >=2:
+                print("Skipping realm space report as API version is less than 2.42.")
 
         # Debug: Print headers and first few rows of fleet space report
-        if debug >= 3:
-            print("Fleet Space Report Headers:", ARRAY_HEADER_ROWS[0])
-            for row in fleet_space_report[:5]:
-                print(row)
+        #if debug >= 3:
+        #    print("Fleet Space Report Headers:", ARRAY_HEADER_ROWS[0])
+        #    for row in fleet_space_report[:3]:
+        #        print(row)
 
     # Create or append to the reporting spreadsheet
-    volumes_report_path = os.path.join(args.reportdir,"STAAS-Volumes-"+MNTH+".xlsx")
-    fleet_report_path = os.path.join(args.reportdir,"STAAS-Fleet-"+MNTH+".xlsx")
-    realm_report_path = os.path.join(args.reportdir,"STAAS-Realms-"+MNTH+".xlsx")
+    fleet_report_path = os.path.join(args.reportdir,"Space-Report-Fleet-"+MNTH+".xlsx")
+    # Check API version before reporting realm space usage
+    if check_api_version(client, 2.42):
+        realm_report_path = os.path.join(args.reportdir,"Space-Report-Realms-"+MNTH+".xlsx")
+    else:
+        if debug >=2:
+            print("Skipping realm space report as API version is less than 2.42.")
+
+    volumes_report_path = os.path.join(args.reportdir,"Space-Report-Volumes-"+MNTH+".xlsx")
 
     try:
-        # Save volume reports
-        save_report_to_excel(volumes_report_path, all_volumes_by_tag, VOLUME_HEADER_ROWS[0], volumes_report_path, 'Volume Space Report')
-
         # Save fleet space report
         if fleet_space_report:
-            save_report_to_excel(fleet_space_report, ARRAY_HEADER_ROWS[0], fleet_report_path, 'Fleet Space Report')
+            save_report_to_excel(fleet_space_report, ARRAY_HEADER_ROWS[0], fleet_report_path, 'Array')
 
         # Debug: Print realm space report before saving
         if debug >= 2:
@@ -357,7 +355,11 @@ if __name__ == "__main__":
 
         # Save realm space report
         if realm_space_report:
-            save_report_to_excel(realm_space_report, REALM_HEADER_ROWS[0], realm_report_path, 'Realm Space Report')
+            save_report_to_excel(realm_space_report, REALM_HEADER_ROWS[0], realm_report_path, 'Realm')
+
+        # Save volume reports
+        save_report_to_excel(volume_space_report, VOLUME_HEADER_ROWS[0], volumes_report_path, 'Tag')
+
 
     except PermissionError as e:
         print(f"PermissionError: {e}. File is open in another application, exiting.")

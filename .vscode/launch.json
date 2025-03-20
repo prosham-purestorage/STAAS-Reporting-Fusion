@@ -14,7 +14,7 @@
             "type": "python",
             "request": "launch",
             "program": "${workspaceFolder}/staas-reporting.py",
-            "args": ["--config", "${workspaceFolder}${pathSeparator}config{$pathSeparator}STAAS_Config.xlsx", "--reportdir", "${workspaceFolder}${pathSeparator}reports"],
+            "args": ["--config", "${workspaceFolder}${pathSeparator}config${pathSeparator}STAAS_Config.xlsx", "--reportdir", "${workspaceFolder}${pathSeparator}reports"],
             "console": "integratedTerminal"
         },
         {

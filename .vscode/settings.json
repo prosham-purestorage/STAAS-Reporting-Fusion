@@ -13,7 +13,7 @@
                 "name": "Python: Run STAAS-Reporting",
                 "type": "python",
                 "request": "launch",
-                "program": "${workspaceFolder}${pathSeparator}staas-reporting.py",
+                "program": "${workspaceFolder}/staas-reporting.py",
                 "args": ["--config", "${workspaceFolder}${pathSeparator}config${pathSeparator}STAAS_Config.xlsx", "--reportdir", "${workspaceFolder}${pathSeparator}reports"],
                 "console": "integratedTerminal"
             },

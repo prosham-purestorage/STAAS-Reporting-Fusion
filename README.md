@@ -1,11 +1,14 @@
 # STAAS-Reporting-Fusion
 
 This package adds chargeback metadata to block volumes on a fleet of Pure Storage FlashArrays and provides regular space reporting for chargeback.
+FlashBlade is no supported at this time
+Filesystems are not reported at this time (not possible to report or tag them)
+Realms are not supported at this time (awaiting Fusion support for Realms)
 
 ## Dependencies and Installation
 
-- **Purity//FA Rest API**: Minimum version 2.39 (Purity//FA 6.8.2 and above) to access the Fusion API.
-- **py-pure-client Python SDK**: Minimum version 1.61.0, which includes support for the required API calls. See [py-pure-client](https://github.com/PureStorage-OpenConnect/py-pure-client).
+- **Purity//FA Rest API**: Minimum version 2.41 (Purity//FA 6.8.4 and above) to access the Fusion API.
+- **py-pure-client Python SDK**: Minimum version 1.62.0, which includes support for the required API calls. See [py-pure-client](https://github.com/PureStorage-OpenConnect/py-pure-client).
 
 ## Runtime Requirements
 
@@ -27,11 +30,13 @@ The `FUSION_SERVER` is the DNS entry for a server that is a member of the fleet 
 
 ### Tagging
 
+The worksheet named `Fleet` defines the Fusion server entry point URL, and the Namespace to put user-defined tags into.
+
 The worksheet named `Tagging_map` contains the rules for the tagging process, which will place tagging records on each matching volume by:
-- realm
-- pod
-- hostgroup (not yet implemented)
-- host (not yet implemented)
+- default chargeback tag
+-`realm`
+-`pod`
+-`workload`
 
 These are in decreasing order of precedence - the first match on a volume wins the tag for that container.
 
@@ -39,10 +44,17 @@ The script `staas-tag_vols.py` will connect to a server in the fleet and, for ea
 
 ### Reporting
 
-The script `staas-reporting.py` will connect to the fleet and generate a spreadsheet with:
-- A worksheet per detected chargeback tag value
+Reporting spreadsheets are created in the reporting directory if they do no exist. Each time the reporting script is run, it will append timestamped records to the appropriate worksheet
+
+The script `staas-reporting.py` will connect to the fleet and generate two spreadsheets.
+-`Space_Report-Fleet-YYYY-MM.xlsx` (YYYY is the year, MM is the month)
+-`Space_Report-Volumes-YYYY-MM.xlsx`
+
+The Fleet report has a worksheet for each array in the fleet, one line per sample collected over the month.
+
+The Volume Reporting script has one worksheet per fleet member.
+- A worksheet per chargeback tag value (the tag values are defined in the Config spreadsheet)
 - One worksheet for volumes that have no tag
-- A fleet space report
 
 The records on each sheet are date/time stamped so that space can be rated externally over time.
 

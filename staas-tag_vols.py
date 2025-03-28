@@ -44,24 +44,15 @@ from staas_common import (
     list_members
 )
 
-debug=0
-
-# Find out if the volume is attached to a host or hostgroup that we want to tag
-def match_client(volume, client):
-    try:
-        response = client.get_volume_connections(names=[volume.name])
-        if response.status_code == 200:
-            connections = response.items
-            for connection in connections:
-                if connection.host:
-                    return {'host': connection.host.name, 'hostgroup': None}
-                elif connection.hostgroup:
-                    return {'host': None, 'hostgroup': connection.hostgroup.name}
-        else:
-            print(f"Failed to retrieve volume connections. Status code: {response.status_code}, Error: {response.errors}")
-    except PureError as e:
-        print(f"Failed to check volume connections: {e}")
-    return None
+USER_NAME=""
+API_TOKEN=""
+FUSION_SERVER=""
+NAMESPACE=""
+TAG_KEY = "chargeback"
+TAGGING_RULES = {}
+host_group_volumes_by_volume = {}
+host_volumes_by_volume = {}
+debug=7
 
 # If the volume is in a realm or pod, grab those names
 def match_volume_name(volume_name):
@@ -101,16 +92,7 @@ def get_tag_value(tag_by, container_name):
         return TAGGING_RULES[tag_by][container_name]
     return None
 
-def tag_volumes(client, fleet_member, volumes, tag_key, tag_value):
-    for volume in volumes:
-        response = client.set_volume_tag(context_names=[fleet_member], resource_name=volume, key=tag_key, value=tag_value)
-        if response.status_code == 200:
-            print(f"Successfully tagged volume {volume} with {tag_key}: {tag_value}")
-        else:
-            print(f"Failed to tag volume {volume}. Status code: {response.status_code}, Error: {response.errors}")
-
-
-def tag_volume(fleet_member, volume_list, value):
+def tag_volume(client,fleet_member, volume_list, value):
     tags = [
         {"namespace": NAMESPACE, "key": TAG_KEY, "value": value}
     ]
@@ -128,91 +110,176 @@ def tag_volume(fleet_member, volume_list, value):
             print(f"Failed to add tags to {fleet_member},{volume_chunk},{tags}. Status code: {response.status_code}, Error: {response.errors}")
             break
 
-# Go through all volumes on this host and create an array of tags with volume names according to the tagging plan
-def process_volumes(client,fleet_member):
-    tag_set={}
-    response = client.get_volumes(context_names=fleet_member)
-    if response.status_code == 200:
-        if debug >=2:
-            print(f"finding volumes for array {fleet_member}")
-        volumes = response.items
+def get_host_group_volumes_by_volume(client, fleet_member):
+    """
+    Retrieve volumes for each host group in TAGGING_RULES and index them by volume name.
+
+    Args:
+        client (Client): The Pure Storage FlashArray client.
+        fleet_member (str): The name of the fleet member.
+
+    Returns:
+        dict: A dictionary where the keys are volume names and the values are host group names.
+    """
+    host_group_volumes_by_volume = {}
+    host_groups_for_tagging = TAGGING_RULES.get("host_group", {})
+
+    response_host_groups = client.get_host_groups(context_names=[fleet_member])
+    if response_host_groups.status_code == 200:
+        host_groups = response_host_groups.items
+        host_group_names = [host_group.name for host_group in host_groups]  # Extract the names
+        if debug >= 3:
+            print(f"Host group names: {host_group_names}")
     else:
-        print(f"Failed to retrieve volumes. Status code: {response.status_code}, Error: {response.errors}")
+        print(f"Failed to retrieve host groups. Status code: {response_host_groups.status_code}, Error: {response_host_groups.errors}")
         return
     
-    for volume in volumes:
-        if volume.subtype != 'regular':
-            if debug >= 4:
-                print(f'Non-regular volume {volume.name} found - not tagging it.')
-            continue;
-        result = match_volume_name(volume.name)
-        volume_group = volume.volume_group
-        
-        realm = result.get("realm")
-        pod = result.get("pod")
-
-        if realm:
-            tag_value = get_tag_value("realm", realm)
-            if tag_value:
-                if debug >= 5:
-                    print(f'Tag value for realm {realm}: {tag_value}')
+    # Retrieve volumes for each host group
+    for host_group_name in host_group_names:
+        if host_group_name in host_groups_for_tagging.keys():
+            response_connections = client.get_connections(context_names=[fleet_member], host_group_names=[host_group_name])
+            if response_connections.status_code == 200:
+                volumes = response_connections.items
+                for volume in volumes:
+                    host_group_volumes_by_volume[volume.volume.name] = host_group_name
             else:
-                if debug >= 5:
-                    print(f'No tagging rule found for realm {realm}')
-                tag_value = get_tag_value("default", "default")
+                print(f"Failed to retrieve connections. Status code: {response_connections.status_code}, Error: {response_connections.errors}")
+                return
+    return host_group_volumes_by_volume
 
-            if tag_value not in tag_set:
-                tag_set[tag_value]={}
-            if realm not in tag_set[tag_value]:
-                tag_set[tag_value][realm]=[]
-            tag_set[tag_value][realm].append(volume.name)
+def match_host_group(volume_name):
+    if volume_name in host_group_volumes_by_volume:
+        return host_group_volumes_by_volume[volume_name]
+    return None
 
-        elif pod:
-            tag_value = get_tag_value("pod", pod)
-            if tag_value: 
-                if debug >= 5:
-                    print(f'Tag value for pod {pod}: {tag_value}')
-            else:
-                if debug >= 5:
-                    print(f'No tagging rule found for pod {pod}')                
-                tag_value = get_tag_value("default", "default")
+def get_host_volumes_by_volume(client, fleet_member):
+    """
+    Retrieve volumes for each host in TAGGING_RULES and index them by volume name.
 
-            if tag_value not in tag_set:
-                tag_set[tag_value]={}
-            if pod not in tag_set[tag_value]:
-                tag_set[tag_value][pod]=[]
-            tag_set[tag_value][pod].append(volume.name)
-        else:
-            if debug >= 5:
-                print(f'Plain volume name: {volume.name}')
-            tag_value = get_tag_value("default", "default")
-            if tag_value not in tag_set:
-                tag_set[tag_value]={}
-            if fleet_member not in tag_set[tag_value]:
-                tag_set[tag_value][fleet_member]=[]
-            tag_set[tag_value][fleet_member].append(volume.name)
-        
+    Args:
+        client (Client): The Pure Storage FlashArray client.
+        fleet_member (str): The name of the fleet member.
+
+    Returns:
+        dict: A dictionary where the keys are volume names and the values are host names.
+    """
+    host_volumes_by_volume = {}
+    hosts_for_tagging = TAGGING_RULES.get("host", {})
+
+    response_hosts = client.get_hosts(context_names=[fleet_member])
+    if response_hosts.status_code == 200:
+        hosts = response_hosts.items
+        host_names = [host.name for host in hosts]  # Extract the names
         if debug >= 3:
-            print(f"Tagging array {fleet_member} volume {volume.name}, in namespace {NAMESPACE} with tag {TAG_KEY}: {tag_value}")
+            print(f"Host names: {host_names}")
+    else:
+        print(f"Failed to retrieve hosts. Status code: {response_hosts.status_code}, Error: {response_hosts.errors}")
+        return
+    
+    # Retrieve volumes for each host
+    for host_name in host_names:
+        if host_name in hosts_for_tagging.keys():
+            response_connections = client.get_connections(context_names=[fleet_member], host_names=[host_name])
+            if response_connections.status_code == 200:
+                connections = response_connections.items
+                for connection in connections:
+                    host_volumes_by_volume[connection.volume.name] = host_name
+            else:
+                print(f"Failed to retrieve connections. Status code: {response_connections.status_code}, Error: {response_connections.errors}")
+                return
+    return host_volumes_by_volume
+
+def match_host(volume_name):
+    if volume_name in host_volumes_by_volume:
+        return host_volumes_by_volume[volume_name]
+    return None
+
+# Go through all volumes on this host and create an array of tags with volume names according to the tagging plan
+def process_volumes(client, fleet_member):
+    tag_set = {}
+    continuation_token = None  # Initialize the continuation token
+
+    # Retrieve host group volumes indexed by volume name
+    host_group_volumes_by_volume = get_host_group_volumes_by_volume(client, fleet_member)
+    host_volumes_by_volume = get_host_volumes_by_volume(client, fleet_member)
+
+    while True:
+        # Retrieve volumes with pagination
+        response = client.get_volumes(context_names=[fleet_member], continuation_token=continuation_token)
+        if response.status_code == 200:
+            if debug >= 2:
+                print(f"Finding volumes for array {fleet_member} (Batch with continuation token: {continuation_token})")
+            volumes = response.items
+        else:
+            print(f"Failed to retrieve volumes. Status code: {response.status_code}, Error: {response.errors}")
+            return
+
+        for volume in volumes:
+            if volume.subtype != 'regular':
+                if debug >= 4:
+                    print(f"Non-regular volume {volume.name} found - not tagging it.")
+                continue
+
+            # Match volume name to realm, pod, or other keys in TAGGING_RULES
+            result = match_volume_name(volume.name)
+            realm = result.get("realm")
+            pod = result.get("pod")
+            host_group_name = match_host_group(volume.name)
+            host_name = match_host(volume.name)
+
+            # Define the order of keys to check
+            tagging_order = ["realm", "pod", "workload", "host_group", "host", "default"]
+
+            # Loop through the keys in the defined order
+            for key in tagging_order:
+                if key == "realm" and realm in TAGGING_RULES["realm"]:
+                    tag_value = get_tag_value("realm", realm)
+                elif key == "pod" and pod in TAGGING_RULES["pod"]:
+                    tag_value = get_tag_value("pod", pod)
+                elif key == "workload":
+                    # Add workload-specific logic here if needed
+                    tag_value = None
+                elif key == "host_group" and host_group_name:
+                    # Add host_group-specific logic here if needed
+                    tag_value = get_tag_value("host_group", host_group_name)
+                elif key == "host":
+                    # Add host-specific logic here if needed
+                    tag_value = get_tag_value("host", host_name)
+                elif key == "default":
+                    tag_value = get_tag_value("default", "default")
+                else:
+                    continue
+
+                if tag_value:
+                    if debug >= 5:
+                        print(f"Tag value for {key}: {tag_value}")
+                    if tag_value not in tag_set:
+                        tag_set[tag_value] = {}
+                    if key not in tag_set[tag_value]:
+                        tag_set[tag_value][key] = []
+                    tag_set[tag_value][key].append(volume.name)
+                    break  # Exit the loop once a match is found
+
+            if debug >= 3:
+                print(f"Tagging volume {volume.name} on array {fleet_member}, in namespace {NAMESPACE} with tag {TAG_KEY}: {tag_value}")
+
+        # Check if there are more volumes to process
+        continuation_token = response.continuation_token
+        if not continuation_token:
+            break  # Exit the loop if there are no more volumes
 
     # Tag the volumes by tag value
-    for tag_value,bucket in tag_set.items():
+    for tag_value, bucket in tag_set.items():
         for bucket_name, volume_names in bucket.items():
             if debug >= 2:
-                print(f"tag_volume({fleet_member}, {volume_names}, {tag_value}")                           
-        tag_volume(fleet_member, volume_names, tag_value)                           
-
-USER_NAME=""
-TAG_API_TOKEN=""
-FUSION_SERVER=""
-NAMESPACE=""
-TAG_KEY = "chargeback"
-TAGGING_RULES = {}
+                print(f"tag_volume({fleet_member}, {volume_names}, {tag_value})")
+            tag_volume(client, fleet_member, volume_names, tag_value)
 
 # Disable certificate warnings
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 def main():
+    global NAMESPACE, TAGGING_RULES
     # Parse command-line arguments
     args = parse_arguments("tag_vols")
 
@@ -235,8 +302,23 @@ def main():
     API_TOKEN = os.getenv('PURE_API_TOKEN')
     FUSION_SERVER = global_variables.get('FUSION_SERVER', '')
     NAMESPACE = global_variables.get('NAMESPACE', '')
-    TAG_KEY = "chargeback"
-    TAG_VALUE = "example_value"
+
+    # Read the Tagging_map worksheet
+    tagging_map_df = config_spreadsheet.parse('Tagging_map')
+
+    # Populate TAGGING_RULES
+    TAGGING_RULES = {"realm": {}, "pod": {}, "workload": {}, "host_group": {}, "host": {}, "default": {}}
+    for _, row in tagging_map_df.iterrows():
+        tag_by = row.get("Tag_By", "").lower()  # e.g., "realm", "pod","host_group","host" or "default"
+        container_name = row.get("Container_Name", "").strip()  # e.g., "realm1", "pod1"
+        tag_value = str(row.get("Tag_Value", "")).strip()  # e.g., "TagValue1"
+
+        if tag_by in TAGGING_RULES:
+            TAGGING_RULES[tag_by][container_name] = tag_value
+        else:
+            print(f"Unknown Tag_By value: {tag_by}. Skipping row.")
+
+    print(f"Loaded tagging rules: {TAGGING_RULES}")
 
     print(f"Connecting to Fusion server: {FUSION_SERVER} with user: {USER_NAME}")
 
@@ -250,12 +332,7 @@ def main():
         fleet_members = list_members(client, [fleet])
 
         for fleet_member in fleet_members:
-            response = client.get_volumes(context_names=[fleet_member])
-            if response.status_code == 200:
-                volumes = [volume.name for volume in response.items if volume.subtype == 'regular']
-                tag_volumes(client, fleet_member, volumes, TAG_KEY, TAG_VALUE)
-            else:
-                print(f"Failed to retrieve volumes. Status code: {response.status_code}, Error: {response.errors}")
+            process_volumes(client, fleet_member)
 
 if __name__ == "__main__":
     main()

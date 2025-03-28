@@ -32,17 +32,20 @@ import urllib3
 import pprint as pp
 from datetime import datetime
 from openpyxl import load_workbook
+from packaging.version import Version
 from staas_common import (
     parse_arguments,
     initialise_client,
     check_purity_role,
     check_api_version,
     list_fleets,
-    list_members
+    list_members,
+    pypureclient
 )
 
 
-debug = 0
+debug = 3
+REALMS_VERSION = "1.66"
 
 # Header rows for the reporting spreadsheet are defined here
 VOLUME_HEADER_ROWS = [
@@ -55,6 +58,10 @@ ARRAY_HEADER_ROWS = [
 
 REALM_HEADER_ROWS = [
     ['Date/Time', 'Array', 'Realm']
+]
+
+DIRECTORY_HEADER_ROWS = [
+    ['Date/Time', 'Array', 'Directory']
 ]
 
 # Disable certificate warnings
@@ -175,7 +182,7 @@ def report_arrays(client, fleet, fleet_members):
             print(f"Failed to retrieve space usage. Status code: {response.status_code}, Error: {response.errors}")
 
         # Check API version before reporting realm space usage
-        if check_api_version(client, 2.42):
+        if Version(pypureclient.__version__) >= Version(REALMS_VERSION):
             connection_type_response = client.get_fleets_members()
             if connection_type_response.status_code == 200:
                 for member in connection_type_response.items:
@@ -201,9 +208,47 @@ def report_arrays(client, fleet, fleet_members):
                 print(f"Failed to retrieve connection type. Status code: {connection_type_response.status_code}, Error: {connection_type_response.errors}")
         else:
             if debug >=2:
-                print("Skipping realm space report as API version is less than 2.42.")
+                print("Skipping realm space report as pypureclient version is too low")
 
     return fleet_space_report, realm_space_report
+
+def report_directories(client, fleet_member):
+    directory_set = []
+    limit = 200  # Number of directories to process per request
+    continuation_token = None  # Token for paginated requests
+
+    while True:
+        # Retrieve directories in chunks of 200
+        if response.status_code == 200:
+            if debug >= 2:
+                print(f"Finding directories for array {fleet_member} (Batch with continuation token: {continuation_token})")
+            for directory in response.items:
+                directory_info = {
+                    'Date/Time': NOW,
+                    'Array': fleet_member,
+                    'Directory': directory.name
+                }
+                # Dynamically add all attributes from the space object
+                if hasattr(directory, 'space') and directory.space:
+                    directory_info.update(directory.space.__dict__)
+                else:
+                    print(f"No space information available for directory {directory.name}")
+                directory_set.append(directory_info)
+
+                # Dynamically update DIRECTORY_HEADER_ROWS based on the first directory
+                if len(DIRECTORY_HEADER_ROWS[0]) == 3:  # Only update if headers are not already updated
+                    additional_headers = [key for key in directory_info.keys() if key not in DIRECTORY_HEADER_ROWS[0]]
+                    DIRECTORY_HEADER_ROWS[0].extend(additional_headers)
+
+            # Check if there are more directories to process
+            continuation_token = response.continuation_token
+            if not continuation_token:
+                break  # Exit the loop if there are no more directories
+        else:
+            print(f"Failed to retrieve directories. Status code: {response.status_code}, Error: {response.errors}")
+            break
+
+    return directory_set
 
 def save_report_to_excel(report_data, headers, report_path, sheet_prefix):
     try:
@@ -222,6 +267,7 @@ def save_report_to_excel(report_data, headers, report_path, sheet_prefix):
                             startrow = book[sheet_name].max_row
                             df.to_excel(writer, sheet_name=sheet_name, index=False, header=False, startrow=startrow)
                         else:
+                            # Write headers when creating a new sheet
                             df.to_excel(writer, sheet_name=sheet_name, index=False, header=headers)
             except (KeyError, ValueError) as e:
                 print(f"Error processing workbook: {e}. Creating a new file.")
@@ -230,6 +276,7 @@ def save_report_to_excel(report_data, headers, report_path, sheet_prefix):
                         if not data:
                             continue
                         df = pd.DataFrame(data)
+                        # Write headers when creating a new file
                         df.to_excel(writer, sheet_name=f"{sheet_prefix} {group}", index=False, header=headers)
         else:
             with pd.ExcelWriter(report_path, engine='openpyxl') as writer:
@@ -237,6 +284,7 @@ def save_report_to_excel(report_data, headers, report_path, sheet_prefix):
                     if not data:
                         continue
                     df = pd.DataFrame(data)
+                    # Write headers when creating a new file
                     df.to_excel(writer, sheet_name=f"{sheet_prefix} {group}", index=False, header=headers)
     except PermissionError as e:
         print(f"PermissionError: {e}. Please ensure the file is not open in another application.")
@@ -277,7 +325,7 @@ if __name__ == "__main__":
     client = initialise_client(FUSION_SERVER, USER_NAME, API_TOKEN)
     if not client:
         exit(1)
-    # Check to see minimum version of 2.40 & array admin privileges for this user
+    # Check to see minimum version of 2.41 & array admin privileges for this user
     role = check_purity_role(client, USER_NAME) 
     if not (role == "array_admin" or role == "read_only)"):
        exit(1)
@@ -290,76 +338,31 @@ if __name__ == "__main__":
     # At some point, there may be multiple fleets visible from a single fusion end-point
     for fleet in fleets:
         volume_space_report = {}
+        directory_space_report = {}
         fleet_members = list_members(client, [fleet])
 
         for fleet_member in fleet_members:
+
+            # Generate volume space report
             volumes_by_tag = report_volumes(client, fleet_member, NAMESPACE, TAG_KEY)
             for tag, volumes in volumes_by_tag.items():
                 if tag not in volume_space_report:
                     volume_space_report[tag] = []
                 volume_space_report[tag].extend(volumes)
 
-        # Collect space data for the arrays and realms
-        fleet_space_report, realm_space_report = report_arrays(client, fleet, fleet_members)
+            # Generate directory space report
+            if not fleet_member.is_local:
+                if debug >= 2:
+                    print(f"Skipping non-local fleet member: {fleet_member.name}")
+                continue
+            directories = report_directories(client, fleet_member)
+            if fleet_member not in directory_space_report:
+                directory_space_report[fleet_member] = []
+            directory_space_report[fleet_member].extend(directories)
 
-        # Update ARRAY_HEADER_ROWS dynamically
-        if fleet_space_report:
-            if len(ARRAY_HEADER_ROWS) == 1:
-                # Iterate over the values of fleet_space_report
-                for reports in fleet_space_report.values():
-                    if reports:  # Ensure the list is not empty
-                        additional_headers = [key for key in reports[0].keys() if key not in ARRAY_HEADER_ROWS[0]]
-                        ARRAY_HEADER_ROWS[0].extend(additional_headers)
-                        break  # Only need to process the first non-empty list
-
-        # Check API version before reporting realm space usage
-        if check_api_version(client, 2.42):
-            # Update REALM_HEADER_ROWS dynamically
-            if realm_space_report:
-                if len(REALM_HEADER_ROWS) == 1:
-                    # Iterate over the values of realm_space_report
-                    for reports in realm_space_report.values():
-                        if reports:  # Ensure the list is not empty
-                            additional_headers = [key for key in reports[0].keys() if key not in REALM_HEADER_ROWS[0]]
-                            REALM_HEADER_ROWS[0].extend(additional_headers)
-                            break  # Only need to process the first non-empty list
-        else:
-            if debug >=2:
-                print("Skipping realm space report as API version is less than 2.42.")
-
-        # Debug: Print headers and first few rows of fleet space report
-        #if debug >= 3:
-        #    print("Fleet Space Report Headers:", ARRAY_HEADER_ROWS[0])
-        #    for row in fleet_space_report[:3]:
-        #        print(row)
-
-    # Create or append to the reporting spreadsheet
-    fleet_report_path = os.path.join(args.reportdir,"Space-Report-Fleet-"+MNTH+".xlsx")
-    # Check API version before reporting realm space usage
-    if check_api_version(client, 2.42):
-        realm_report_path = os.path.join(args.reportdir,"Space-Report-Realms-"+MNTH+".xlsx")
-    else:
-        if debug >=2:
-            print("Skipping realm space report as API version is less than 2.42.")
-
-    volumes_report_path = os.path.join(args.reportdir,"Space-Report-Volumes-"+MNTH+".xlsx")
-
-    try:
-        # Save fleet space report
-        if fleet_space_report:
-            save_report_to_excel(fleet_space_report, ARRAY_HEADER_ROWS[0], fleet_report_path, 'Array')
-
-        # Debug: Print realm space report before saving
-        if debug >= 2:
-            print("Realm Space Report:", realm_space_report)
-
-        # Save realm space report
-        if realm_space_report:
-            save_report_to_excel(realm_space_report, REALM_HEADER_ROWS[0], realm_report_path, 'Realm')
-
-        # Save volume reports
+        # Save the reports
+        volumes_report_path = os.path.join(args.reportdir, f"Space-Report-Volumes-{MNTH}.xlsx")
         save_report_to_excel(volume_space_report, VOLUME_HEADER_ROWS[0], volumes_report_path, 'Tag')
 
-
-    except PermissionError as e:
-        print(f"PermissionError: {e}. File is open in another application, exiting.")
+        directories_report_path = os.path.join(args.reportdir, f"Space-Report-Directories-{MNTH}.xlsx")
+        save_report_to_excel(directory_space_report, DIRECTORY_HEADER_ROWS[0], directories_report_path, 'Directory')

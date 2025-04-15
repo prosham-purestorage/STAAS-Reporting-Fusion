@@ -350,8 +350,9 @@ if __name__ == "__main__":
                     volume_space_report[tag] = []
                 volume_space_report[tag].extend(volumes)
 
-            # Generate directory space report
-            if not fleet_member.is_local:
+            """
+            # Generate directory space report, when supported in fusion
+            if not fleet[fleet_member].is_local:
                 if debug >= 2:
                     print(f"Skipping non-local fleet member: {fleet_member.name}")
                 continue
@@ -359,10 +360,14 @@ if __name__ == "__main__":
             if fleet_member not in directory_space_report:
                 directory_space_report[fleet_member] = []
             directory_space_report[fleet_member].extend(directories)
+            """
 
         # Save the reports
         volumes_report_path = os.path.join(args.reportdir, f"Space-Report-Volumes-{MNTH}.xlsx")
         save_report_to_excel(volume_space_report, VOLUME_HEADER_ROWS[0], volumes_report_path, 'Tag')
 
+        """
+        # Generate directory space report, when supported in fusion
         directories_report_path = os.path.join(args.reportdir, f"Space-Report-Directories-{MNTH}.xlsx")
         save_report_to_excel(directory_space_report, DIRECTORY_HEADER_ROWS[0], directories_report_path, 'Directory')
+        """

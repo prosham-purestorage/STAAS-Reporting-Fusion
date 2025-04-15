@@ -37,6 +37,7 @@ The worksheet named `Tagging_map` contains the rules for the tagging process, wh
 -`realm`
 -`pod`
 -`workload`
+-`hostgroup`
 
 These are in decreasing order of precedence - the first match on a volume wins the tag for that container.
 

@@ -1,5 +1,5 @@
 # pip install -r requirements.txt
 pandas>=2.2.3
-py-pure-client>=1.65.0
+py-pure-client>=1.66.0
 urllib3>=2.2.3
 openpyxl>=3.1.5

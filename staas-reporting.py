@@ -219,6 +219,7 @@ def report_directories(client, fleet_member):
 
     while True:
         # Retrieve directories in chunks of 200
+        response = client.get_directories(context_names=[fleet_member], limit=limit, continuation_token=continuation_token)
         if response.status_code == 200:
             if debug >= 2:
                 print(f"Finding directories for array {fleet_member} (Batch with continuation token: {continuation_token})")
@@ -329,7 +330,7 @@ if __name__ == "__main__":
     role = check_purity_role(client, USER_NAME) 
     if not (role == "array_admin" or role == "read_only)"):
        exit(1)
-    if not check_api_version(client, 2.41):
+    if not check_api_version(client, 2.42):
         exit(2)
 
     # Get the arrays for reporting contexts for the nominated fleet
@@ -350,24 +351,22 @@ if __name__ == "__main__":
                     volume_space_report[tag] = []
                 volume_space_report[tag].extend(volumes)
 
-            """
+            
             # Generate directory space report, when supported in fusion
-            if not fleet[fleet_member].is_local:
-                if debug >= 2:
-                    print(f"Skipping non-local fleet member: {fleet_member.name}")
-                continue
+            #if not fleet[fleet_member].is_local:
+            #    if debug >= 2:
+            #        print(f"Skipping non-local fleet member: {fleet_member.name}")
+            #    continue
             directories = report_directories(client, fleet_member)
             if fleet_member not in directory_space_report:
                 directory_space_report[fleet_member] = []
             directory_space_report[fleet_member].extend(directories)
-            """
+            
 
         # Save the reports
         volumes_report_path = os.path.join(args.reportdir, f"Space-Report-Volumes-{MNTH}.xlsx")
         save_report_to_excel(volume_space_report, VOLUME_HEADER_ROWS[0], volumes_report_path, 'Tag')
 
-        """
         # Generate directory space report, when supported in fusion
         directories_report_path = os.path.join(args.reportdir, f"Space-Report-Directories-{MNTH}.xlsx")
         save_report_to_excel(directory_space_report, DIRECTORY_HEADER_ROWS[0], directories_report_path, 'Directory')
-        """

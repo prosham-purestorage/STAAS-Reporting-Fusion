@@ -12,8 +12,8 @@ This package adds chargeback metadata to block volumes on a fleet of Pure Storag
 
 ## Dependencies and Installation
 
-- **Purity//FA Rest API**: Minimum version 2.41 (Purity//FA 6.8.5 and above) to access the Fusion API.
-- **py-pure-client Python SDK**: Minimum version 1.65.0, which includes support for the required API calls. See [py-pure-client](https://github.com/PureStorage-OpenConnect/py-pure-client).
+- **Purity//FA Rest API**: Minimum version 2.42 (Purity//FA 6.8.5 and above) to access the Fusion API.
+- **py-pure-client Python SDK**: Minimum version 1.66.0, which includes support for the required API calls. See [py-pure-client](https://github.com/PureStorage-OpenConnect/py-pure-client).
 
 ## Runtime Requirements
 
@@ -55,9 +55,14 @@ Reporting spreadsheets are created in the reporting directory if they do no exis
 
 The script `staas-reporting.py` will connect to the fleet and generate (or append to) a spreadsheets named:
 -`Space_Report-Volumes-YYYY-MM.xlsx`
+-`Space_Report-Directories-YYYY-MM.xlsx`
 
 The Volume Reporting script has one worksheet per chargeback code.
 The records on each sheet are date/time stamped so that space can be rated externally over time.
 The records contain the space details for each volume
+
+The Directories Reporting script has one worksheet per array.
+The records on each sheet are date/time stamped so that space can be rated externally over time.
+The records contain the space details for each managed directory
 
 Headers are written to each sheet on the first pass only; subsequent script runs append records to each sheet. This allows the reporting to use the same report output each month for ease of processing with pivot tables, for example.

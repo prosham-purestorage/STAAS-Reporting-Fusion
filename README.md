@@ -1,5 +1,7 @@
 # STAAS-Reporting-Fusion
 
+This software can be used to add chargeback reporting to an MSP or Enterprise Storage environment with Pure Storage Arrays.
+
 This package adds chargeback metadata to block volumes on a fleet of Pure Storage FlashArrays and provides regular space reporting for chargeback.
 FlashBlade is not supported at this time (Fusion support on FlashBlade has been released, for FlashBlade//S and //E on 4.5.6, but no tagging - Directory reporting is on the current roadma p for this package)
 Filesystems/Directory are not reported at this time (not possible to report with Fusion yet, or tag them)

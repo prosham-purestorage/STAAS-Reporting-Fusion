@@ -1,7 +1,17 @@
-import pypureclient
-import urllib3
-import re
-import pprint as pp
+
+import argparse
+import logging
+from typing import List, Optional, Any
+from pypureclient import flasharray
+from pypureclient.flasharray import Client, PureError
+
+DEBUG_LEVEL = 0
+LOG_FORMAT = '%(asctime)s %(levelname)s %(message)s'
+logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
+logger = logging.getLogger(__name__)
+if DEBUG_LEVEL > 0:
+    logger.setLevel(logging.DEBUG)
+
 
 """
 staas_common.py
@@ -13,9 +23,8 @@ Includes argument parsing, Fusion client setup, API helpers, and fleet/member li
 from pypureclient import flasharray
 from pypureclient.flasharray import Client, PureError
 
-debug=0
 
-def parse_arguments(options):
+def parse_arguments(options: str) -> argparse.Namespace:
     """
     Parse command-line arguments for the reporting/tagging scripts.
     Args:
@@ -23,7 +32,6 @@ def parse_arguments(options):
     Returns:
         argparse.Namespace with parsed arguments
     """
-    import argparse
     parser = argparse.ArgumentParser(description='STAAS Reporting Scripts')
     parser.add_argument('--config', type=str, required=True, help='Complete path to filename of the configuration file')
     if options == "report":
@@ -31,12 +39,11 @@ def parse_arguments(options):
     try:
         return parser.parse_args()
     except SystemExit as e:
-        if e.code != 0:
-            print(f"Error parsing arguments: {e}")
-        import sys
-        sys.exit(e.code)
+        logger.error(f"Error parsing arguments: {e}")
+        raise
 
-def initialise_client(fusion_server, user_name, api_token):
+
+def initialise_client(fusion_server: str, user_name: str, api_token: str) -> Optional[Client]:
     """
     Initialize and return a Fusion API client.
     Args:
@@ -50,27 +57,19 @@ def initialise_client(fusion_server, user_name, api_token):
         client = flasharray.Client(target=fusion_server, username=user_name, api_token=api_token)
         return client
     except PureError as e:
-        print(f"Failed to initialize client: {e}")
+        logger.error(f"Failed to initialize client: {e}")
         return None
 
-def check_purity_role(client, user_name):
+
+def check_purity_role(client: Client, user_name: str) -> str:
     """
     Placeholder for checking the user's role on the array. Returns 'array_admin' by default.
     """
-    # This code needs work - not sure how to do this
+    # TODO: Implement actual role check if API supports it
     return "array_admin"
-    try:
-        response = flasharray.AdminRole(name=user_name).get()
-        if response.status_code == 200 and response.items:
-            return response.items[0].role
-        else:
-            print(f"Failed to retrieve user role. Status code: {response.status_code}, Error: {response.errors}")
-            return None
-    except PureError as e:
-        print(f"Failed to check purity role: {e}")
-        return None
 
-def check_api_version(client, min_version):
+
+def check_api_version(client: Client, min_version: float) -> bool:
     """
     Check if the Fusion API version meets the minimum required version.
     Args:
@@ -84,14 +83,14 @@ def check_api_version(client, min_version):
         if version >= min_version:
             return True
         else:
-            if debug >= 1:
-                print(f"API version {version} is less than the minimum required version {min_version}")
+            logger.warning(f"API version {version} is less than the minimum required version {min_version}")
             return False
     except PureError as e:
-        print(f"Failed to check API version: {e}")
+        logger.error(f"Failed to check API version: {e}")
         return False
 
-def list_fleets(client):
+
+def list_fleets(client: Client) -> List[str]:
     """
     List all fleets visible to the Fusion client.
     Args:
@@ -106,13 +105,14 @@ def list_fleets(client):
             fleet_names = [fleet.name for fleet in fleets]
             return fleet_names
         else:
-            print(f"Failed to retrieve fleets. Status code: {response.status_code}, Error: {response.errors}")
+            logger.error(f"Failed to retrieve fleets. Status code: {response.status_code}, Error: {response.errors}")
             return []
     except PureError as e:
-        print(f"Exception when calling get_fleets: {e}")
+        logger.error(f"Exception when calling get_fleets: {e}")
         return []
 
-def list_members(client, fleets):
+
+def list_members(client: Client, fleets: List[str]) -> List[str]:
     """
     List all members (arrays) for the given fleets.
     Args:
@@ -121,19 +121,18 @@ def list_members(client, fleets):
     Returns:
         List of member (array) names
     """
-    all_members = []
+    all_members: List[str] = []
     for fleet in fleets:
         try:
             response = client.get_fleets_members()
             if response.status_code == 200:
-                members = list(response.items)  # Convert ItemIterator to list
-                # Print attributes of the first member to identify the correct attribute
-                member_names = [member.member.name for member in members]  # Adjust attribute access
+                members = list(response.items)
+                member_names = [member.member.name for member in members]
                 all_members.extend(member_names)
             else:
-                print(f"Failed to list members. Status code: {response.status_code}, Error: {response.errors}")
+                logger.error(f"Failed to list members. Status code: {response.status_code}, Error: {response.errors}")
                 return []
         except PureError as e:
-            print(f"Failed to list members: {e}")
+            logger.error(f"Failed to list members: {e}")
             return []
     return all_members

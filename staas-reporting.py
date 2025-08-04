@@ -24,7 +24,23 @@
 # INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
 # CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+
 # POSSIBILITY OF SUCH DAMAGE.
+
+"""
+staas-reporting.py
+------------------
+Generates space usage reports for block volumes and directories in a Pure Storage Fusion fleet.
+- Connects to Fusion using credentials and config Excel file
+- Retrieves volume, directory, and realm space usage
+- Groups volume data by chargeback tag
+- Writes results to Excel reports, one worksheet per tag or array
+
+Usage:
+    python staas-reporting.py --config config/STAAS_Config.xlsx --reportdir reports/
+
+See README.md for more details.
+"""
 
 import os
 import pandas as pd
@@ -68,6 +84,15 @@ DIRECTORY_HEADER_ROWS = [
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 def get_volume_space(client, fleet_member_name, volumes):
+    """
+    Retrieve space usage details for a list of volumes on a given fleet member.
+    Args:
+        client: Fusion API client
+        fleet_member_name: Name of the array
+        volumes: List of volume names
+    Returns:
+        dict mapping volume name to space usage attributes
+    """
     space_values = {}
     chunk_size = 500
 
@@ -86,6 +111,15 @@ def get_volume_space(client, fleet_member_name, volumes):
     return space_values
 
 def read_volume_tags(client, fleet_member, volumes):
+    """
+    Retrieve chargeback tags for a list of volumes from a given fleet member.
+    Args:
+        client: Fusion API client
+        fleet_member: Name of the array
+        volumes: List of volume names
+    Returns:
+        dict mapping volume name to tag value
+    """
     tags = {}
     chunk_size = 500
 
@@ -109,6 +143,16 @@ def read_volume_tags(client, fleet_member, volumes):
     return tags
 
 def report_volumes(client, fleet_member, namespace, tag_key):
+    """
+    Collects and groups volume space usage by chargeback tag for a fleet member.
+    Args:
+        client: Fusion API client
+        fleet_member: Name of the array
+        namespace: Tag namespace
+        tag_key: Tag key (e.g., 'chargeback')
+    Returns:
+        dict mapping tag value to list of volume info dicts
+    """
     volume_set = []
     response = client.get_volumes(context_names=[fleet_member])
     if response.status_code == 200:
@@ -159,6 +203,15 @@ def report_volumes(client, fleet_member, namespace, tag_key):
         return {}
 
 def report_arrays(client, fleet, fleet_members):
+    """
+    Collects space usage for arrays and realms in the fleet.
+    Args:
+        client: Fusion API client
+        fleet: Fleet name
+        fleet_members: List of array names
+    Returns:
+        (fleet_space_report, realm_space_report): dicts of space usage
+    """
     fleet_space_report = {}
     realm_space_report = {}
 
@@ -213,6 +266,14 @@ def report_arrays(client, fleet, fleet_members):
     return fleet_space_report, realm_space_report
 
 def report_directories(client, fleet_member):
+    """
+    Collects directory space usage for a fleet member.
+    Args:
+        client: Fusion API client
+        fleet_member: Name of the array
+    Returns:
+        List of directory info dicts
+    """
     directory_set = []
     limit = 200  # Number of directories to process per request
     continuation_token = None  # Token for paginated requests
@@ -252,6 +313,14 @@ def report_directories(client, fleet_member):
     return directory_set
 
 def save_report_to_excel(report_data, headers, report_path, sheet_prefix):
+    """
+    Writes grouped report data to an Excel file, appending or creating sheets as needed.
+    Args:
+        report_data: dict mapping group (tag/array) to list of dicts
+        headers: list of column headers
+        report_path: output Excel file path
+        sheet_prefix: prefix for worksheet names
+    """
     try:
         # Check if the file exists
         if os.path.exists(report_path):

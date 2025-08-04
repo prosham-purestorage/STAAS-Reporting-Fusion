@@ -123,6 +123,95 @@ The script `staas-reporting.py` will connect to the fleet and generate (or appen
 -`Space_Report-Directories-YYYY-MM.xlsx`
 
 The Volume Reporting script has one worksheet per chargeback code.
+
+---
+
+## Script Overviews
+
+
+### staas-tag_vols.py
+
+Tags block volumes in a Pure Storage Fusion fleet for chargeback, based on rules in a spreadsheet. Tagging is prioritized by realm, pod, workload, host group, host, and default.
+
+**Usage Example:**
+
+```sh
+python staas-tag_vols.py --config config/STAAS_Config.xlsx
+```
+
+### staas-reporting.py
+
+Generates space usage reports for volumes and directories, grouped by chargeback tag, and writes them to Excel files.
+
+**Usage Example:**
+
+```sh
+python staas-reporting.py --config config/STAAS_Config.xlsx --reportdir reports/
+```
+
+---
+
+
+## Configuration Spreadsheet Format
+
+The configuration Excel file (e.g., `STAAS_Config.xlsx`) must contain at least two worksheets:
+
+- **Fleet**: Contains global settings. Example columns:
+  - `FUSION_SERVER`: DNS or IP of a Fusion fleet member
+  - `NAMESPACE`: Namespace for tagging
+
+- **Tagging_map**: Defines tagging rules. Example columns:
+  - `Tag_By`: One of `realm`, `pod`, `workload`, `host_group`, `host`, `default`
+  - `Container_Name`: Name of the realm/pod/etc. (or 'default')
+  - `Tag_Value`: The value to assign for the chargeback tag
+
+---
+
+## Tagging Logic
+
+
+When tagging, the script checks for a match in this order:
+
+1. Realm
+2. Pod
+3. Workload
+4. Host Group
+5. Host
+6. Default
+
+The first match found is used for the tag value. If no match is found, the default is applied.
+
+---
+
+## Reporting Output
+
+
+Reports are written to Excel files in the specified report directory:
+
+- `Space-Report-Volumes-YYYY-MM.xlsx`: One worksheet per chargeback code, with space details for each volume.
+- `Space-Report-Directories-YYYY-MM.xlsx`: One worksheet per array, with space details for each managed directory.
+
+Each worksheet is appended to on each run, with date/time-stamped records for historical tracking.
+
+---
+
+## Example Environment Variables
+
+
+Set these before running the scripts:
+
+```sh
+export PURE_USER_NAME=your_fusion_user
+export PURE_API_TOKEN=your_fusion_api_token
+```
+
+---
+
+## Additional Notes
+
+- Both scripts require Python 3 and the dependencies listed in `requirements.txt`.
+- Ensure you have write access to the report directory and the config file is accessible.
+- For more details, see the docstrings and comments in each script.
 The records on each sheet are date/time stamped so that space can be rated externally over time.
 The records contain the space details for each volume
 

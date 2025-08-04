@@ -24,7 +24,6 @@
 # INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
 # CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-# POSSIBILITY OF SUCH DAMAGE.
 
 import os
 import pandas as pd
@@ -32,6 +31,18 @@ import pypureclient
 import urllib3
 import re
 import pprint as pp
+
+"""
+staas-tag_vols.py
+-----------------
+Tags block volumes in a Pure Storage Fusion fleet for chargeback, based on rules in a spreadsheet.
+Tagging is prioritized by realm, pod, workload, host group, host, and default.
+
+Usage:
+    python staas-tag_vols.py --config config/STAAS_Config.xlsx
+
+See README.md for more details.
+"""
 
 from pypureclient import flasharray
 from pypureclient.flasharray import Client, PureError
@@ -56,6 +67,13 @@ debug=7
 
 # If the volume is in a realm or pod, grab those names
 def match_volume_name(volume_name):
+    """
+    Parse a volume name to extract realm, pod, and volume components.
+    Args:
+        volume_name: The name of the volume
+    Returns:
+        dict with keys 'realm', 'pod', 'volume'
+    """
     realmpattern = r'^([\w.-]+)::([\w.-]+)::([\w.-]+)$'
     podpattern = r'^([\w.-]+)::([\w.-]+)$'
     volpattern = r'^[\w-]+(?:/[\w-]+)*$'
@@ -88,11 +106,17 @@ def match_volume_name(volume_name):
     
 # get the tag value for any tagging_rule
 def get_tag_value(tag_by, container_name):
+    """
+    Get the tag value for a given tag type and container name from TAGGING_RULES.
+    """
     if tag_by in TAGGING_RULES and container_name in TAGGING_RULES[tag_by]:
         return TAGGING_RULES[tag_by][container_name]
     return None
 
 def tag_volume(client,fleet_member, volume_list, value):
+    """
+    Apply a chargeback tag to a list of volumes on a fleet member.
+    """
     tags = [
         {"namespace": NAMESPACE, "key": TAG_KEY, "value": value}
     ]
@@ -111,6 +135,14 @@ def tag_volume(client,fleet_member, volume_list, value):
             break
 
 def get_host_group_volumes_by_volume(client, fleet_member):
+    """
+    Retrieve volumes for each host group in TAGGING_RULES and index them by volume name.
+    Args:
+        client: Fusion API client
+        fleet_member: Name of the array
+    Returns:
+        dict mapping volume name to host group name
+    """
     """
     Retrieve volumes for each host group in TAGGING_RULES and index them by volume name.
 
@@ -148,11 +180,22 @@ def get_host_group_volumes_by_volume(client, fleet_member):
     return host_group_volumes_by_volume
 
 def match_host_group(volume_name):
+    """
+    Return the host group name for a given volume, if present.
+    """
     if volume_name in host_group_volumes_by_volume:
         return host_group_volumes_by_volume[volume_name]
     return None
 
 def get_host_volumes_by_volume(client, fleet_member):
+    """
+    Retrieve volumes for each host in TAGGING_RULES and index them by volume name.
+    Args:
+        client: Fusion API client
+        fleet_member: Name of the array
+    Returns:
+        dict mapping volume name to host name
+    """
     """
     Retrieve volumes for each host in TAGGING_RULES and index them by volume name.
 
@@ -190,12 +233,19 @@ def get_host_volumes_by_volume(client, fleet_member):
     return host_volumes_by_volume
 
 def match_host(volume_name):
+    """
+    Return the host name for a given volume, if present.
+    """
     if volume_name in host_volumes_by_volume:
         return host_volumes_by_volume[volume_name]
     return None
 
 # Go through all volumes on this host and create an array of tags with volume names according to the tagging plan
 def process_volumes(client, fleet_member):
+    """
+    For all regular volumes on a fleet member, determine the correct chargeback tag
+    based on the tagging rules and apply the tag using the Fusion API.
+    """
     tag_set = {}
     continuation_token = None  # Initialize the continuation token
 
@@ -279,6 +329,9 @@ def process_volumes(client, fleet_member):
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 def main():
+    """
+    Main entry point for the tagging script. Loads config, tagging rules, and applies tags to all fleet members.
+    """
     global NAMESPACE, TAGGING_RULES
     # Parse command-line arguments
     args = parse_arguments("tag_vols")
